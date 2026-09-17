@@ -1,0 +1,2 @@
+/* Secure key-file fallback for browser previews with clipboard restrictions. */
+.import-key-button{display:block;width:100%;margin-top:8px;border:1px solid #96b3c5;border-radius:6px;padding:8px;background:#fff;color:#284f68;font-size:10px;font-weight:800;cursor:pointer}.import-key-button:hover{background:#eef5f8;border-color:#5d8ba5}.import-key-button:disabled{opacity:.6;cursor:wait}

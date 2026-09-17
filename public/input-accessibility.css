@@ -1,0 +1,2 @@
+/* Editable controls must remain above canvas/overlay layers and accept mouse, touch and clipboard input. */
+input:not([type="checkbox"]):not([type="radio"]),textarea,select{pointer-events:auto!important;user-select:text!important;-webkit-user-select:text!important;touch-action:manipulation!important;cursor:text!important}.modal input,.modal textarea,.modal select{position:relative;z-index:2}.modal form{position:relative;z-index:2}.modal-backdrop{pointer-events:auto}.modal{pointer-events:auto}

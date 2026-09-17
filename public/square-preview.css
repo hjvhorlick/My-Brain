@@ -1,0 +1,7 @@
+/* A live preview can be a compact square pane. Fit the complete workspace into it rather than relying on a desktop-height canvas. */
+@media(max-height:700px){
+  .topbar{height:48px;padding:0 14px}.sidebar{padding-top:12px}.brand{height:24px;margin-bottom:3px}.project-switcher{margin:5px 0 10px}.nav{gap:1px}.nav-item{height:29px}.api-status{padding-top:8px}.map-header{height:70px;padding:13px 18px 9px}.map-header h1{font-size:15px;margin-bottom:0}.map-header p:not(.eyebrow),.map-header .eyebrow,.map-stats,.legend{display:none}.canvas-wrap{margin:0 10px;border-radius:8px;min-height:0}.command-region{padding:8px 16px 10px}.command-shell{padding:6px}.command-mode{padding-bottom:3px}.command-input-wrap{height:34px}.suggestions{display:none}.settings-fab{top:10px}.map-header{padding-right:195px!important}.inspector-empty{padding-top:35px}.inspector-content{padding-top:14px}
+}
+@media(max-width:560px) and (max-height:700px){
+  .topbar{height:44px}.crumb{font-size:10px}.map-header{height:55px;padding:9px 12px}.map-header h1{font-size:13px}.settings-fab{top:7px;right:9px;padding:6px 7px}.command-region{padding:6px 8px 8px}.command-input-wrap{height:33px}.command-mode{display:none}.canvas-wrap{margin:0 6px}.empty-state{transform:translate(-50%,-50%) scale(.78);width:330px}.canvas-controls{bottom:8px;left:8px}.top-actions{gap:3px}
+}

@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#08111e" />
+  <title>The Brain — Research Intelligence</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/clarity.css" />
+  <link rel="stylesheet" href="/settings.css" />
+  <link rel="stylesheet" href="/modal-clarity.css" />
+  <link rel="stylesheet" href="/static-preview.css" />
+  <link rel="stylesheet" href="/input-accessibility.css" />
+  <link rel="stylesheet" href="/compact-view.css" />
+  <link rel="stylesheet" href="/settings-access.css" />
+  <link rel="stylesheet" href="/square-preview.css" />
+  <link rel="stylesheet" href="/mobile-navigation.css" />
+  <link rel="stylesheet" href="/clipboard-button.css" />
+  <link rel="stylesheet" href="/import-key.css" />
+  <link rel="stylesheet" href="/navigation-rework.css?v=nav-links-4" />
+  <link rel="stylesheet" href="/google-discovery.css?v=auto-map-2" />
+  <link rel="stylesheet" href="/research-results.css?v=2" />
+  <link rel="stylesheet" href="/neural-experience.css?v=keyword-network-4" />
+  <link rel="stylesheet" href="/focus-map-2d.css?v=research-engine-3" />
+  <link rel="stylesheet" href="/dark-map-theme.css?v=dark-map-3" />
+  <link rel="stylesheet" href="/media-explorer.css?v=media-map-2" />
+</head>
+<body>
+  <div class="app-shell">
+    <main class="workspace">
+      <header class="topbar">
+        <button class="project-crumb" id="project-switcher" title="Switch project"><span>Brain</span><i>/</i><strong id="project-title">My Research Brain</strong><b>⌄</b></button>
+        <div class="top-actions">
+          <button class="api-status top-api-status" id="api-status" title="Open Gemini settings"><span class="status-dot"></span><span>Checking Gemini…</span></button>
+          <button class="icon-button" id="search-button" title="Search local knowledge">⌕ <span class="keycap">⌘ K</span></button>
+          <button class="icon-button settings-shortcut" id="settings-button" title="Open Gemini settings">⚙ <span>Gemini settings</span></button>
+          <button class="icon-button focus-shortcut" id="focus-button" title="Fit the complete 2D map">⌗ <span>Fit map</span></button>
+          <button class="share-button" id="new-project">+ New search</button>
+          <button class="profile" title="Local workspace">M</button>
+        </div>
+      </header>
+
+      <section class="map-area" id="map-area">
+        <div class="map-header"><div><p class="eyebrow">2D KNOWLEDGE MAP</p><h1 id="map-title">Start a line of inquiry</h1><p id="map-subtitle">Left-click centres a card and searches real sources around it. Drag it to arrange it. Right-click opens its information and actions.</p></div><div class="map-side"><div class="map-stats"><span><b id="node-count">0</b> focus words</span><span><b id="sources-count">0</b> sources</span><span><b id="claim-count">0</b> quoted claims</span></div></div></div>
+        <div class="selection-dock" id="selection-dock" hidden></div>
+        <div class="canvas-wrap" id="canvas-wrap">
+          <div class="canvas-grid"></div><div class="brain-glow"></div>
+          <svg id="edge-layer" aria-hidden="true"></svg>
+          <div class="generation-guide" id="generation-guide" hidden aria-label="Research generations"><span>MAIN TOPIC</span><span>FIRST GENERATION · KEYWORDS</span><span>SECOND GENERATION · EVIDENCE</span><span>THIRD GENERATION · SOURCES</span></div>
+          <div id="nodes-layer"></div>
+          <section class="media-stage" id="media-stage" hidden aria-live="polite"></section>
+          <section class="research-progress" id="research-progress" hidden aria-live="polite"></section>
+          <div class="empty-state" id="empty-state">
+            <div class="empty-orbit orbit-one"></div><div class="empty-orbit orbit-two"></div>
+            <div class="empty-core">✦</div>
+            <p class="eyebrow">YOUR RESEARCH BRAIN</p>
+            <h2>What do you want to understand?</h2>
+            Type one word, topic or question. Review any suggestions, then press Enter to begin a real source-backed map.</p>
+            <div class="central-inquiry-wrap">
+              <form id="empty-command-form" class="central-inquiry-form">
+                <input id="empty-command-input" autocomplete="off" spellcheck="true" autocapitalize="sentences" lang="en" aria-label="Begin a research inquiry" aria-autocomplete="list" aria-controls="empty-typing-assist" placeholder="Start with a topic, word or question…" /><button type="submit">Start search <span>↵</span></button>
+              </form>
+              <div class="typing-assist" id="empty-typing-assist" role="listbox" hidden></div>
+            </div>
+            <small id="empty-search-status">Suggestions and spelling help appear while you type · Press Enter or choose Start search when this is your search</small>
+          </div>
+          <div class="canvas-controls" aria-label="Map controls"><button id="zoom-out" title="Zoom out">−</button><button id="fit-map" title="Fit the complete map">Fit map</button><button id="zoom-in" title="Zoom in">+</button></div>
+          <div class="legend">Left-click centres and expands a card · Drag a card to arrange it · Right-click opens its information · Drag empty space to pan</div>
+        </div>
+      </section>
+
+      <section class="command-region">
+        <div class="assistant-surface" id="assistant-surface" hidden></div>
+        <div class="command-shell">
+          <div class="command-mode"><button class="mode-button selected" data-mode="web"><span>⌕</span> Search web</button><button class="mode-button" data-mode="research"><span>✦</span> Analyse with Gemini</button><button class="mode-button" data-mode="ask"><span>◌</span> Ask Brain</button></div>
+          <form id="command-form">
+            <div class="command-input-wrap"><span class="spark">✦</span><input id="command-input" autocomplete="off" placeholder="Research a topic, question or problem…" aria-label="Research command" /><button type="button" class="attach-button" id="attach-button" title="Add files">⌑</button><input type="file" id="file-input" multiple hidden /></div>
+            <button class="send-button" id="send-button" type="submit" title="Run command"><span>↑</span></button>
+          </form>
+          <div class="suggestions"><button data-command="Research renewable energy in South Africa">Research a topic</button><button data-command="What am I missing?">What am I missing?</button><button data-command="Find connections">Find connections</button><button data-command="Find evidence against this">Find contradictory information</button></div>
+        </div>
+      </section>
+    </main>
+
+    <aside class="inspector" id="inspector">
+      <div class="inspector-empty" id="inspector-empty"><div class="inspect-visual"><span class="circle c1"></span><span class="circle c2"></span><span class="circle c3"></span><b>✦</b></div><p class="eyebrow">CONTEXT PANEL</p><h2>Select a thought</h2><p>Explore its evidence, related ideas, confidence and next questions.</p></div>
+      <div class="inspector-content" id="inspector-content" hidden></div>
+    </aside>
+  </div>
+
+  <nav class="mobile-nav" aria-label="Application navigation">
+    <button id="mobile-brain" class="active"><span>◉</span>Brain</button>
+    <button id="mobile-projects"><span>▦</span>Projects</button>
+    <button id="mobile-research"><span>✦</span>Research</button>
+    <button id="mobile-sources"><span>▤</span>Sources</button>
+    <button id="mobile-questions"><span>?</span>Questions</button>
+    <button id="mobile-files"><span>⌑</span>Files</button>
+    <button id="mobile-more"><span>•••</span>More</button>
+  </nav>
+
+  <div class="modal-backdrop" id="modal-backdrop" hidden><div class="modal" id="modal"></div></div>
+  <div class="toast-region" id="toast-region" aria-live="polite"></div>
+  <script src="/app.js?v=research-engine-12"></script>
+</body>
+</html>
