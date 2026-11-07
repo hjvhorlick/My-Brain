@@ -58,11 +58,29 @@ function showResearchProgress(topic, phase='starting', summary=null) {
   panel.hidden=false; panel.innerHTML=`<p class="research-progress-kicker">RESEARCHING</p><h2>${esc(mapLabel(topic))}</h2><div class="research-progress-steps">${rows.map(([label,status])=>`<div><span>${status}</span>${esc(label)}</div>`).join('')}</div>${summary?`<p class="research-progress-summary">${esc(summary)}</p>`:''}`;
 }
 function hideResearchProgress(delay=0) { const panel=$('#research-progress'); if(!panel)return; clearTimeout(panel._hideTimer); if(delay)panel._hideTimer=setTimeout(()=>{panel.hidden=true;panel.replaceChildren();},delay);else{panel.hidden=true;panel.replaceChildren();} }
+// Ask the server whether it can actually reach the public indexes, and say so plainly
+// instead of letting every search fail with a misleading "no results" message.
+async function checkConnectivity(fresh=false){
+  const banner=$('#connectivity-banner');
+  try {
+    const result=await api(`/api/connectivity${fresh?'?fresh=1':''}`);
+    state.connectivity=result;
+    if(!banner) return result;
+    if(result.online && result.reachable===result.total){ banner.hidden=true; banner.replaceChildren(); return result; }
+    const offline=result.targets.filter(target=>target.status!=='ok').map(target=>target.name);
+    banner.hidden=false;
+    banner.classList.toggle('offline',!result.online);
+    banner.innerHTML=`<span class="connectivity-icon">${result.online?'!':'⚡'}</span><div><b>${result.online?'Some source indexes are unreachable':'No internet access from this server'}</b><span>${esc(result.message)}</span>${offline.length?`<small>Unreachable: ${esc(offline.join(', '))}</small>`:''}</div><button type="button" data-recheck-connectivity>Check again</button>`;
+    banner.querySelector('[data-recheck-connectivity]').onclick=event=>{ event.currentTarget.disabled=true; event.currentTarget.textContent='Checking…'; void checkConnectivity(true).finally(()=>{ if(event.currentTarget.isConnected){event.currentTarget.disabled=false;event.currentTarget.textContent='Check again';} }); };
+    return result;
+  } catch { return null; }
+}
 function renderApiStatus() { const status=$('#api-status'); const sources=(state.status?.webSearch?.sources||[]).length; status.classList.add('ready'); status.querySelector('span:last-child').textContent=sources ? `${sources} source indexes · no key` : 'Search ready'; status.title=(state.status?.webSearch?.sources||[]).join(', '); }
 async function bootstrap() {
   try {
     state.status = await api('/api/status');
     renderApiStatus();
+    void checkConnectivity();
     const projects=await api('/api/projects'); state.project=projects[0];
     if (!state.project) throw new Error('No project could be created.');
     await loadGraph();
@@ -474,10 +492,22 @@ async function runFreeDiscovery(query, type='web', growNetwork=false) {
     const result=await api(`/api/discovery?q=${encodeURIComponent(query)}&type=${encodeURIComponent(type)}`);
     const live=result.providers.filter(provider=>provider.status==='ok');
     const unavailable=result.providers.filter(provider=>provider.status!=='ok');
+    if(result.connectivity==='offline'){
+      status.textContent=`No public source index could be reached from this server, so nothing was searched for “${query}”.`;
+      host.innerHTML=`<div class="search-offline"><b>This server has no internet access.</b><p>${esc(result.providers.map(provider=>provider.provider).join(', '))} did not answer. Nothing was returned and nothing was made up.</p><p class="search-offline-hint">Restore outbound internet for this machine, then press <b>Search</b> again. You can still save a public URL directly below, and the map and readers work on anything already stored.</p></div>`;
+      const failed=[...new Set(result.providers.map(provider=>provider.provider))];
+      status.textContent=`No source index could be reached (${failed.join(', ')}).`;
+      void checkConnectivity(true);
+      return;
+    }
     status.textContent=`${result.results.length} real result${result.results.length===1?'':'s'} from ${live.map(provider=>provider.provider).join(', ') || 'available public sources'}; no AI was used.${unavailable.length?` ${unavailable.length} source index${unavailable.length===1?' was':'es were'} unavailable.`:''}`;
     renderFreeDiscoveryResults(result);
     if (growNetwork) await growNeuralMapFromResults(result.results || []);
-  } catch(error) { status.textContent=error.message; host.innerHTML='<p class="empty-copy">The source search could not finish. Try again in a moment or add an original URL directly below.</p>'; }
+  } catch(error) {
+    status.textContent=error.message;
+    host.innerHTML=`<div class="search-offline"><b>The source search could not finish.</b><p>${esc(error.message)}</p><p class="search-offline-hint">Try again in a moment, or add an original public URL directly below.</p></div>`;
+    void checkConnectivity(true);
+  }
 }
 async function saveDirectSourceUrl() {
   const input=$('#direct-source-url'), button=$('#save-direct-source'); const url=input?.value.trim(); if(!url) return;

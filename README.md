@@ -79,6 +79,16 @@ Nothing opens in a third-party embed. Each format has a viewer built here:
   snapshot when a page's extract changes.
 - Local knowledge search over nodes, sources and saved text (`⌘K`).
 
+### When the internet is unavailable
+
+Everything here is fetched from public indexes, so the server needs outbound internet access.
+The app probes its indexes on load (`GET /api/connectivity`) and says so plainly:
+
+- A banner appears when some or all indexes are unreachable, with a **Check again** button.
+- A search against a dead network reports **"No source index could be reached"** with the names
+  of the indexes that failed — never an empty result list, which would imply the indexes answered.
+- The map, saved sources, local files and everything already stored keep working offline.
+
 ### Serendipity
 
 The **Serendipity** chip reads Wikipedia's "Today's featured article" page and opens one of the

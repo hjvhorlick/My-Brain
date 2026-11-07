@@ -184,3 +184,41 @@
 body.has-reader { overflow: hidden; }
 .command-mode { flex-wrap: wrap; }
 .mode-button span:first-child { font-weight: 800; }
+
+/* Connectivity banner: shown only when this server cannot reach a public index.
+   It states the fact and offers a re-check instead of blaming the query. */
+.connectivity-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 10px 17px 0;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 196, 120, .38);
+  border-radius: 10px;
+  background: linear-gradient(90deg, rgba(60, 42, 14, .92), rgba(40, 30, 12, .75));
+  color: #ffe6c4;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.connectivity-banner[hidden] { display: none; }
+.connectivity-banner.offline { border-color: rgba(255, 130, 130, .45); background: linear-gradient(90deg, rgba(64, 20, 26, .92), rgba(40, 14, 18, .75)); color: #ffd8d8; }
+.connectivity-banner .connectivity-icon { flex: none; width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; background: rgba(255,255,255,.14); font-size: 12px; }
+.connectivity-banner div { display: grid; gap: 2px; min-width: 0; }
+.connectivity-banner b { font-size: 12px; color: #fff; }
+.connectivity-banner span { color: inherit; opacity: .92; }
+.connectivity-banner small { color: inherit; opacity: .7; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; }
+.connectivity-banner button {
+  margin-left: auto; flex: none; align-self: center;
+  padding: 6px 11px; border-radius: 7px; cursor: pointer;
+  border: 1px solid rgba(255,255,255,.3); background: rgba(255,255,255,.1); color: #fff; font-size: 11px; font-weight: 700;
+}
+.connectivity-banner button:hover { background: rgba(255,255,255,.2); }
+.connectivity-banner button:disabled { opacity: .6; cursor: default; }
+@media (max-width: 700px) { .connectivity-banner { flex-wrap: wrap; margin: 8px 10px 0; } }
+
+/* Search panel: the offline explanation replaces a bare "request failed" message. */
+.search-offline { padding: 14px 16px; border-radius: 10px; border: 1px solid rgba(255,160,120,.4); background: rgba(52,30,16,.55); color: #ffe3cd; font-size: 12px; line-height: 1.6; }
+.search-offline b { display: block; margin-bottom: 6px; color: #fff; font-size: 13px; }
+.search-offline p { margin: 0 0 6px; }
+.search-offline-hint { color: #ffd9b8; opacity: .85; font-size: 11.5px; }
+.modal .search-offline { margin-top: 4px; }

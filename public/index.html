@@ -24,7 +24,7 @@
   <link rel="stylesheet" href="/focus-map-2d.css?v=research-engine-3" />
   <link rel="stylesheet" href="/dark-map-theme.css?v=dark-map-3" />
   <link rel="stylesheet" href="/media-explorer.css?v=media-map-2" />
-  <link rel="stylesheet" href="/readers.css?v=readers-1" />
+  <link rel="stylesheet" href="/readers.css?v=readers-2" />
 </head>
 <body>
   <div class="app-shell">
@@ -40,6 +40,8 @@
           <button class="profile" title="Local workspace">M</button>
         </div>
       </header>
+
+      <div class="connectivity-banner" id="connectivity-banner" hidden role="status"></div>
 
       <section class="map-area" id="map-area">
         <div class="map-header"><div><p class="eyebrow">2D KNOWLEDGE MAP</p><h1 id="map-title">Start a line of inquiry</h1><p id="map-subtitle">Left-click centres a card and searches real sources around it. Drag it to arrange it. Right-click opens its information and actions.</p></div><div class="map-side"><div class="map-stats"><span><b id="node-count">0</b> focus words</span><span><b id="sources-count">0</b> sources</span><span><b id="claim-count">0</b> quoted claims</span></div></div></div>
@@ -102,6 +104,6 @@
   <div class="modal-backdrop" id="modal-backdrop" hidden><div class="modal" id="modal"></div></div>
   <div class="reader-overlay" id="reader-overlay" hidden aria-label="Reader"></div>
   <div class="toast-region" id="toast-region" aria-live="polite"></div>
-  <script src="/app.js?v=search-reader-13"></script>
+  <script src="/app.js?v=search-reader-14"></script>
 </body>
 </html>

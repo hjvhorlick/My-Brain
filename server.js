@@ -69,8 +69,13 @@ function wordDistance(left = '', right = '') {
 async function typingSuggestions(query) {
   const key=normalisedWords(query); const cached=typingSuggestionCache.get(key); if(cached&&Date.now()-cached.at<300000)return cached.value;
   const endpoint=`https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}&limit=6&namespace=0&format=json`;
-  const response=await fetch(endpoint,{signal:AbortSignal.timeout(5000),headers:{'User-Agent':'TheBrainResearch/0.1 (typing assistance)'}});
-  if(!response.ok)throw new Error(`Wikipedia suggestions returned HTTP ${response.status}`);
+  let response;
+  try { response=await fetch(endpoint,{signal:AbortSignal.timeout(5000),headers:{'User-Agent':'TheBrainResearch/0.1 (typing assistance)'}}); }
+  catch(error){
+    const failure=new Error('Wikipedia could not be reached from this server, so typing suggestions are unavailable. Searching still works when a source index is reachable.');
+    failure.status=502; failure.cause=error; throw failure;
+  }
+  if(!response.ok){const failure=new Error(`Wikipedia suggestions returned HTTP ${response.status}.`);failure.status=502;throw failure;}
   const data=await response.json(); const suggestions=(data[1]||[]).map((title,index)=>({title:String(title),url:String(data[3]?.[index]||`https://en.wikipedia.org/wiki/${encodeURIComponent(String(title).replaceAll(' ','_'))}`)})).filter(item=>item.title&&item.url).slice(0,6);
   const queryWords=key.split(' ').filter(Boolean); const correction=suggestions.find(item=>{const candidate=normalisedWords(item.title);const candidateWords=candidate.split(' ').filter(Boolean);const distance=wordDistance(key,candidate);return queryWords.length===candidateWords.length&&candidate!==key&&distance>0&&distance/Math.max(key.length,candidate.length)<=.28;}) || null;
   const value={query,suggestions,correction:correction?{title:correction.title,url:correction.url}:null,provider:'Wikipedia OpenSearch'}; typingSuggestionCache.set(key,{at:Date.now(),value}); if(typingSuggestionCache.size>250)typingSuggestionCache.delete(typingSuggestionCache.keys().next().value); return value;
@@ -700,6 +705,7 @@ app.get('/api/status', (_req, res) => res.json({
     sources: ['Wikipedia', 'Wiktionary dictionary', 'Wikimedia Commons', 'OpenAlex', 'Crossref', 'arXiv', 'Internet Archive'],
     readers: ['Dictionary', 'Wikipedia article', 'Web page reader', 'Image viewer', 'Video and audio player', 'Document reader']
   },
+  connectivity: { note:'Checked live by the app: /api/connectivity probes the public indexes.' },
   researchEngine: { name:'Topic-centred research engine', configuration:researchConfig(parseJson(process.env.BRAIN_RESEARCH_CONFIG,{})), behaviour:'Ranks candidates by relevance, intent, specificity, authority, evidence and distance; stores source quotations, duplicate groups, possible conflicts and research gaps.' },
   privacy: 'Typing assistance sends the current term to Wikipedia OpenSearch after a short pause for real-title suggestions. When you search, the query is sent by this server to the listed public indexes. Saved page text, sources and reader history stay in the local database. Nothing is sent to an AI service, because this application has none.'
 }));
@@ -756,8 +762,18 @@ app.get('/api/discovery', async (req, res, next) => {
   try {
     const query = String(req.query.q || '').trim();
     if (!query) throw badRequest('Enter a search query.');
-    const type = String(req.query.type || 'all').trim();
-    res.json(await discoverFreeSources(query, type));
+    const type = String(req.query.type || 'web').trim();
+    const result = await discoverFreeSources(query, type);
+    // Report a total connection failure as such. Returning an empty result list would
+    // be indistinguishable from "the indexes answered and had nothing", which is false.
+    const reachable = result.providers.filter(provider => provider.status === 'ok').length;
+    const failed = result.providers.filter(provider => provider.status !== 'ok');
+    const value = {
+      ...result,
+      reachable,
+      connectivity: reachable === 0 ? 'offline' : failed.length ? 'partial' : 'online'
+    };
+    res.json(value);
   } catch (e) { next(e); }
 });
 
@@ -826,8 +842,16 @@ app.post('/api/projects/:projectId/neural-grow', async (req, res, next) => {
     const selectedSources=ranking.selected;
     // Never turn low-relevance search candidates into a map merely to fill space.
     // If the public indexes cannot supply direct material, say so and leave the
-    // focused web unchanged rather than introducing unrelated topics.
-    if (!selectedSources.length) throw Object.assign(new Error('No sufficiently relevant live source was available for this focus. The map was left unchanged; try again shortly or add an original public URL.'),{status:502});
+    // focused web unchanged rather than introducing unrelated topics. A total
+    // failure of every index is reported as a connection problem, not as "no results":
+    // those are different facts and the distinction matters to the reader.
+    if (!selectedSources.length) {
+      const reachable=providerStatus.filter(provider=>provider.status==='ok').length;
+      if (!candidates.length && !reachable) {
+        throw Object.assign(new Error(`None of the public source indexes could be reached from this server (${providerStatus.map(provider=>provider.provider).join(', ')}). Check this machine's internet connection, then try again. Nothing was added to the map.`),{status:502});
+      }
+      throw Object.assign(new Error('The public indexes were reachable, but no result was relevant enough for this focus. The map was left unchanged; try a more specific wording or paste an original public URL.'),{status:502});
+    }
     const root=neuralRootFor(projectId,query,centerNodeId);
     // Candidate sources are stored even when they are not promoted into the map. This
     // makes relevance decisions auditable without treating every search hit as knowledge.
@@ -983,6 +1007,45 @@ app.get('/api/files/:id/download', async (req, res, next) => { try { const file 
    with data only: dictionary senses, Wikipedia sections, readable page text, a
    playable media URL, or a local file's own bytes. Nothing is generated or rewritten.
 */
+
+// Live connectivity probe. A search that fails because this machine cannot reach the
+// public indexes is a different fact from "no relevant result", and the interface must
+// be able to say which one happened.
+const PROBE_TARGETS = [
+  { name:'Wikipedia', url:'https://en.wikipedia.org/w/api.php?action=query&meta=siteinfo&format=json' },
+  { name:'Dictionary', url:'https://api.dictionaryapi.dev/api/v2/entries/en/word' },
+  { name:'Wikimedia Commons', url:'https://commons.wikimedia.org/w/api.php?action=query&meta=siteinfo&format=json' },
+  { name:'OpenAlex', url:'https://api.openalex.org/works?per-page=1' },
+  { name:'Internet Archive', url:'https://archive.org/metadata/nasa' }
+];
+const connectivityCache = { at:0, value:null };
+app.get('/api/connectivity', async (req, res, next) => {
+  try {
+    const fresh = req.query.fresh === '1';
+    if (!fresh && connectivityCache.value && Date.now() - connectivityCache.at < 60000) return res.json(connectivityCache.value);
+    const settled = await Promise.allSettled(PROBE_TARGETS.map(async target => {
+      const started = Date.now();
+      const response = await fetch(target.url, { signal: AbortSignal.timeout(6000), headers: { 'User-Agent': 'TheBrainResearch/0.1 (connectivity probe)', Accept: 'application/json' } });
+      return { name: target.name, status: response.ok ? 'ok' : `http ${response.status}`, ms: Date.now() - started };
+    }));
+    const targets = settled.map((result, index) => result.status === 'fulfilled' ? result.value : { name: PROBE_TARGETS[index].name, status: 'unreachable', ms: null, error: String(result.reason?.message || 'unreachable') });
+    const reachable = targets.filter(target => target.status === 'ok').length;
+    const value = {
+      online: reachable > 0,
+      reachable,
+      total: targets.length,
+      targets,
+      checkedAt: now(),
+      message: reachable === 0
+        ? 'This server cannot reach any public source index. Searches, readers and suggestions will fail until outbound internet access is restored.'
+        : reachable < targets.length
+          ? `${reachable} of ${targets.length} public indexes are reachable. Requests to the others will report an error rather than invent a result.`
+          : `All ${targets.length} public indexes are reachable.`
+    };
+    connectivityCache.at = Date.now(); connectivityCache.value = value;
+    res.json(value);
+  } catch (e) { next(e); }
+});
 
 // Dictionary reader: real senses, examples, pronunciation and audio for one term.
 app.get('/api/read/dictionary', async (req, res, next) => {
