@@ -52,38 +52,47 @@ cannot be collected is shown as unavailable — never invented or substituted.
 
 ### The search procedure (layered search)
 
-A search is a **procedure**, not a single query. Type `book` and the engine answers in four
-passes, each drawn on the map:
+The internet is the knowledge base; the map is the notebook. Nothing is pre-stored, so every
+search grows a small, real mind map out of what public indexes actually say.
+
+A search is a **procedure**, not a single query. Type `god` and the engine answers in four
+passes, each drawn as map cards:
 
 | Layer | What it shows | Example |
 | --- | --- | --- |
-| 0 | The main item and what it is | **Book** — "a medium for recording information in the form of writing or images" |
-| 1 | A small set of kinds of it (max 4) | Novel · Poetry · Textbook · Comic book |
-| 2 | Writers in a kind — **only when you open it** | *Novel* → George Orwell |
-| 3 | Their works | Animal Farm · Nineteen Eighty-Four |
+| 0 | The main item and what it is | **God** — "a supreme being, worshipped in many traditions" |
+| 1 | The aspects of it (max 4) | Names · Attributes · Religion · Church |
+| 2 | The members named inside an aspect | *Names* → Yahweh · Allah · Elohim · *Religion* → Christianity · Islam · Judaism |
+| 3 | Detail inside a member — **only when you open it** | *Attributes* → its own sub-parts and sources |
+
+"Book" is only one example of a subject; the same procedure works for a person, a concept,
+a place or a thing, because the aspects are read from the structure of the main item itself.
 
 **Rules the engine follows**
 
-1. **Relevance is a gate, not a ranking.** A card needs a real match on the main item's title or
+1. **Relevance is a gate, not a ranking.** An aspect needs a real match on the main item's own
    text before it can enter a layer. Furniture headings ("See also", "References", "Bibliography",
-   "History") are rejected outright; a heading like "Types of books" is expanded into the kinds
-   it actually names instead of becoming a card itself.
-2. **Layers are capped.** At most 4 kinds, 2 writers per kind, 2 works per writer. A small correct
-   web beats a large vague one.
-3. **Attribution is checked.** A work only appears under a writer if that writer is named in the
-   title or extract. A page with no attribution is not treated as authorship.
-4. **Popularity and freshness only break ties.** Citation counts and archive downloads are
+   "Gallery") and index noise are rejected outright; a heading like "Types of books" is expanded
+   into the entries it actually names instead of becoming a card itself.
+2. **Layers are capped.** At most 4 aspects, and 5 members per aspect. A small correct web beats
+   a large vague one.
+3. **Members belong to their aspect.** A member has to be named by that aspect — as one of its
+   sub-headings, one of its links, or a source that genuinely mentions it. A popular page that
+   never names the aspect cannot join it.
+4. **The subject is never its own member.** "God" does not appear under "Names", because level 2
+   is for the things inside the aspect, not for the thing being searched.
+5. **Popularity and freshness only break ties.** Citation counts and archive downloads are
    scaled so they can never outrank a genuine match — they order equally relevant candidates.
-5. **A second word narrows everything.** `book religion` re-runs the procedure constrained to
-   that facet: kinds must belong to it (Religious text, scripture…), and writers/works follow
-   from there. A broad second word is labelled as such instead of being padded out.
-6. **Branching is lazy.** The first search stays fast; writers and works are fetched when a kind
-   is opened (`POST /api/nodes/:id/expand`), and re-opening reuses existing cards.
-7. **Failure is distinct from emptiness.** "No index could be reached" and "the indexes answered
+6. **A second word narrows the same search.** `god religion` keeps the main item and constrains
+   the aspects to that facet; it does not start an unrelated search. A broad second word is
+   labelled as such instead of being padded out.
+7. **Branching is lazy.** The first search stays fast; the other members of an aspect are fetched
+   when you open it (`POST /api/nodes/:id/expand`), and re-opening reuses existing cards.
+8. **Failure is distinct from emptiness.** "No index could be reached" and "the indexes answered
    with nothing relevant" produce different messages, and neither writes to the map.
 
 Tune it with `BRAIN_SEARCH_CONFIG`, for example
-`BRAIN_SEARCH_CONFIG='{"MAX_TYPES":3,"MIN_TYPE_SCORE":5}'`.
+`BRAIN_SEARCH_CONFIG='{"MAX_TYPES":3,"MAX_MEMBERS_PER_ASPECT":4,"MIN_TYPE_SCORE":5}'`.
 
 ### Read it in the app
 
@@ -154,8 +163,8 @@ uploads/                Created at runtime; local files (ignored by git)
 | `POST /api/projects/:id/nodes`, `PATCH/DELETE /api/nodes/:id` | Map editing |
 | `GET /api/discovery?q=&type=` | Search public indexes |
 | `GET /api/typing-suggestions?q=` | Real Wikipedia title suggestions and spelling hints |
-| `POST /api/projects/:id/search-engine` | Run the layered search procedure (main item → kinds → writers → works) |
-| `POST /api/nodes/:id/expand` | Open a kind: fetch its writers, then their works |
+| `POST /api/projects/:id/search-engine` | Run the layered search procedure (main item → aspects → members) |
+| `POST /api/nodes/:id/expand` | Open an aspect: fetch the other members named inside it |
 | `POST /api/projects/:id/neural-grow` | Classic radial source map from a search |
 | `POST /api/projects/:id/sources/import` | Save one source (URL, metadata) |
 | `POST /api/sources/:id/recheck` | Revisit a page and snapshot changes |

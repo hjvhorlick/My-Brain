@@ -124,7 +124,7 @@ function isMapCard(node) {
 }
 // Cards produced by the layered search engine carry an explicit layer, so the map can
 // show main item → kind → writer → work without guessing from titles.
-const LAYER_ROLES=new Set(['search-main','search-type','search-writer','search-work']);
+const LAYER_ROLES=new Set(['search-main','search-aspect','search-member']);
 function isLayerCard(node){ return LAYER_ROLES.has(node?.metadata?.role); }
 function mapCards() {
   const cards=(state.graph.nodes || []).filter(isMapCard); if(!state.focusScopeId)return cards;
@@ -236,7 +236,7 @@ function renderMap() {
   const guide=$('#generation-guide'); guide.hidden=!nodes.length;
   const layered=nodes.some(isLayerCard);
   if(nodes.length) guide.innerHTML=layered
-    ? '<span>MAIN ITEM</span><span>1 · KINDS OF IT</span><span>2 · WRITERS IN A KIND</span><span>3 · THEIR WORKS</span>'
+    ? '<span>MAIN ITEM</span><span>1 · ASPECTS OF IT</span><span>2 · MEMBERS OF AN ASPECT</span><span>3 · THEIR DETAIL</span>'
     : state.focusScopeId?'<span>Chosen focus</span><span>Fresh source-backed web</span><span>Source evidence in information</span>':'<span>Main point</span><span>Distinct topic paths</span><span>Source evidence in information</span>';
   const fit=$('#fit-map'); if(fit){fit.textContent=state.focusScopeId?'Full map':'Fit map';fit.title=state.focusScopeId?'Return to the full saved map':'Fit the complete map';}
   const shortcut=$('#focus-button'); if(shortcut){const label=shortcut.querySelector('span');if(label)label.textContent=state.focusScopeId?'Full map':'Fit map';shortcut.title=state.focusScopeId?'Return to the full saved map':'Fit the complete 2D map';}
@@ -314,7 +314,7 @@ function renderInspector(detail) {
   const candidateRootId=['discovery-root','neural-root'].includes(node.metadata?.role) ? node.id : (node.metadata?.discoveryRootId || node.metadata?.neuralRootId);
   const discoveryRootId=['discovery-root','neural-root'].includes(state.graph.nodes.find(item=>item.id===candidateRootId)?.metadata?.role) ? candidateRootId : '';
   const analysisAction=discoveryRootId ? `<section class="inspector-section discovery-action"><h3 class="section-heading">Read this focus</h3><p>Open the dictionary, an encyclopaedia article or a live list of images and video for this word. Sources are searched live and never invented.</p><div class="medium-picker"><button data-reader-for="dictionary">Dictionary</button><button data-reader-for="wikipedia">Wikipedia</button><button data-reader-for="images">Images</button><button data-reader-for="videos">Video</button></div></section>` : '';
-  panel.innerHTML=`<button class="inspect-close" id="inspector-close" aria-label="Close context">×</button><span class="type-pill">${icons[node.type]||'◈'} ${esc(typeNames[node.type]||node.type)}</span><h2 class="inspect-title">${esc(node.title)}</h2>${node.body?`<section class="inspector-section research-information"><h3 class="section-heading">Research information</h3><p class="inspect-body">${text(node.body)}</p></section>`:''}<div class="confidence-row"><div class="metric"><span>Confidence</span><b class="confidence-${esc(node.confidence)}">${esc(node.confidence)}</b></div><div class="metric"><span>Priority</span><b>${esc(friendly(node.priority))}</b></div><div class="metric"><span>Origin</span><b>${esc(node.origin)}</b></div></div>${node.type==='evidence'||evidenceConnections.length?`<section class="inspector-section"><h3 class="section-heading">Evidence chain</h3><div class="evidence-chain"><div class="chain-step">Source / material</div><div class="chain-step">Evidence: ${esc(brief(node.title,70))}</div><div class="chain-step">${evidenceConnections.length?`${evidenceConnections.length} documented relationship${evidenceConnections.length===1?'':'s'}`:'Interpretation pending'}</div></div></section>`:''}<section class="inspector-section"><h3 class="section-heading">Source-quoted claims <span>(${claims.length})</span></h3><p class="medium-help">These are retained source quotations, not automatic final conclusions.</p>${claimCards}</section><section class="inspector-section"><h3 class="section-heading">Original research sources <span>(${sources.length})</span></h3>${sourceCards}</section><section class="inspector-section medium-options"><h3 class="section-heading">Explore this focus as</h3><p class="medium-help">Map is the default: drag real thumbnails, pan and zoom. Right-click a card for its large preview. Grid remains optional; items save only when you choose Add to web.</p><div class="medium-picker"><button data-medium="wikipedia">Wikipedia</button><button data-medium="dictionary">Dictionary</button><button data-medium="websites">Web</button><button data-medium="images">Images</button><button data-medium="videos">Videos</button><button data-medium="books">Books</button><button data-medium="documents">Papers</button><button data-medium="music">Music</button></div></section>${node.metadata?.role==='search-type'?`<section class="inspector-section discovery-action"><h3 class="section-heading">Open this kind</h3><p>Writers in “${esc(node.title)}” come first, then their works. Only this branch grows; the rest of the map stays as it is.</p><button class="minor-button" data-expand-layer="${esc(node.id)}">Find writers and works</button></section>`:''}<section class="inspector-section"><h3 class="section-heading">Connected thoughts <span>(${related.length})</span></h3><div class="related-list">${relatedCards}</div></section>${analysisAction}<section class="inspector-section"><h3 class="section-heading">Actions for this information</h3><div class="inspector-actions"><button class="inspector-action primary" data-research-node="${esc(node.id)}">Search around this focus</button><button class="inspector-action" data-edit="${esc(node.id)}">Edit information</button><button class="inspector-action" data-priority-node="${esc(node.id)}">Set importance</button><button class="inspector-action" data-connect="${esc(node.id)}">Connect to a word</button><button class="inspector-action" data-attach-node="${esc(node.id)}">Attach a file</button><button class="inspector-action danger" data-delete="${esc(node.id)}">Delete</button></div></section>`;
+  panel.innerHTML=`<button class="inspect-close" id="inspector-close" aria-label="Close context">×</button><span class="type-pill">${icons[node.type]||'◈'} ${esc(typeNames[node.type]||node.type)}</span><h2 class="inspect-title">${esc(node.title)}</h2>${node.body?`<section class="inspector-section research-information"><h3 class="section-heading">Research information</h3><p class="inspect-body">${text(node.body)}</p></section>`:''}<div class="confidence-row"><div class="metric"><span>Confidence</span><b class="confidence-${esc(node.confidence)}">${esc(node.confidence)}</b></div><div class="metric"><span>Priority</span><b>${esc(friendly(node.priority))}</b></div><div class="metric"><span>Origin</span><b>${esc(node.origin)}</b></div></div>${node.type==='evidence'||evidenceConnections.length?`<section class="inspector-section"><h3 class="section-heading">Evidence chain</h3><div class="evidence-chain"><div class="chain-step">Source / material</div><div class="chain-step">Evidence: ${esc(brief(node.title,70))}</div><div class="chain-step">${evidenceConnections.length?`${evidenceConnections.length} documented relationship${evidenceConnections.length===1?'':'s'}`:'Interpretation pending'}</div></div></section>`:''}<section class="inspector-section"><h3 class="section-heading">Source-quoted claims <span>(${claims.length})</span></h3><p class="medium-help">These are retained source quotations, not automatic final conclusions.</p>${claimCards}</section><section class="inspector-section"><h3 class="section-heading">Original research sources <span>(${sources.length})</span></h3>${sourceCards}</section><section class="inspector-section medium-options"><h3 class="section-heading">Explore this focus as</h3><p class="medium-help">Map is the default: drag real thumbnails, pan and zoom. Right-click a card for its large preview. Grid remains optional; items save only when you choose Add to web.</p><div class="medium-picker"><button data-medium="wikipedia">Wikipedia</button><button data-medium="dictionary">Dictionary</button><button data-medium="websites">Web</button><button data-medium="images">Images</button><button data-medium="videos">Videos</button><button data-medium="books">Books</button><button data-medium="documents">Papers</button><button data-medium="music">Music</button></div></section>${node.metadata?.role==='search-aspect'?`<section class="inspector-section discovery-action"><h3 class="section-heading">Open this aspect</h3><p>The other members of “${esc(node.title)}” are fetched when you open it. Only this branch grows; the rest of the map stays as it is.</p><button class="minor-button" data-expand-layer="${esc(node.id)}">Find more members</button></section>`:''}<section class="inspector-section"><h3 class="section-heading">Connected thoughts <span>(${related.length})</span></h3><div class="related-list">${relatedCards}</div></section>${analysisAction}<section class="inspector-section"><h3 class="section-heading">Actions for this information</h3><div class="inspector-actions"><button class="inspector-action primary" data-research-node="${esc(node.id)}">Search around this focus</button><button class="inspector-action" data-edit="${esc(node.id)}">Edit information</button><button class="inspector-action" data-priority-node="${esc(node.id)}">Set importance</button><button class="inspector-action" data-connect="${esc(node.id)}">Connect to a word</button><button class="inspector-action" data-attach-node="${esc(node.id)}">Attach a file</button><button class="inspector-action danger" data-delete="${esc(node.id)}">Delete</button></div></section>`;
   $('#inspector-close').onclick=()=>selectNode(null);
   $$('[data-select]').forEach(button=>button.onclick=()=>{const relatedNode=state.graph.nodes.find(item=>item.id===button.dataset.select);if(relatedNode)focusAndResearchNode(relatedNode);});
   panel.querySelector('[data-research-node]')?.addEventListener('click',()=>focusAndResearchNode(node));
@@ -464,12 +464,12 @@ function returnedFocusCardIds(result = {}) {
   }
   return new Set(ids.filter(Boolean));
 }
-// A layered search: main item → kinds → writers → works. The server runs the procedure;
-// this only runs the first pass and lets a kind expand on demand.
+// A layered search: main item → its aspects → the members of an aspect. The server runs
+// the procedure and writes the map; this only draws it and opens an aspect on demand.
 async function runLayeredSearch(query, triggerButton=null){
   const clean=String(query||'').trim(); if(clean.length<2){ toast('Enter at least two characters.','error'); return; }
   const status=$('#empty-search-status');
-  if(status) status.textContent=`Finding what “${clean}” is, then its kinds, writers and works…`;
+  if(status) status.textContent=`Finding what “${clean}” is, then its aspects and what sits inside them…`;
   showResearchProgress(clean);
   const original=triggerButton?.textContent;
   if(triggerButton){ triggerButton.disabled=true; triggerButton.textContent='Searching…'; }
@@ -483,8 +483,8 @@ async function runLayeredSearch(query, triggerButton=null){
     state.centerId=center.id;
     buildTwoDimensionalLayout(); fitMap(); renderMap();
     hideResearchProgress(600);
-    const count=(result.types?.length||0);
-    toast(`${result.main.title}: ${count} kind${count===1?'':'s'} mapped. Open a kind to see its writers and works.`,'success');
+    const aspects=(result.aspects||[]).length, members=(result.members||[]).length;
+    toast(`${result.main.title}: ${aspects} aspect${aspects===1?'':'s'} and ${members} member${members===1?'':'s'} mapped. Open an aspect to go deeper.`,'success');
     await selectNode(center.id,true);
   } catch(error){
     hideResearchProgress();
@@ -495,23 +495,23 @@ async function runLayeredSearch(query, triggerButton=null){
     if(triggerButton){ triggerButton.disabled=false; triggerButton.textContent=original; }
   }
 }
-// Opening a kind asks for that branch's writers and works only — the rest of the map
+// Opening an aspect asks for that branch's members only — the rest of the map
 // is untouched, which is what keeps a search fast and the picture readable.
 async function expandLayerNode(node, button=null){
   if(!node) return;
   const original=button?.textContent;
   if(button){ button.disabled=true; button.textContent='Opening…'; }
-  toast(`Finding writers and works in “${node.title}”…`);
+  toast(`Finding the members of “${node.title}”…`);
   try {
     const result=await api(`/api/nodes/${node.id}/expand`,{method:'POST',body:JSON.stringify({})});
     await loadGraph();
     state.centerId=state.graph.nodes.find(item=>item.id===node.id)?.id || state.centerId;
     buildTwoDimensionalLayout(); fitMap(); renderMap();
     await selectNode(node.id,true);
-    const writers=(result.writers||[]).length, works=(result.works||[]).length;
-    toast(writers||works ? `${node.title}: ${writers} writer${writers===1?'':'s'} and ${works} work${works===1?'':'s'} added.` : `No writers or works passed the relevance gate for “${node.title}”.`, writers||works?'success':'');
+    const added=(result.members||[]).length;
+    toast(added ? `${node.title}: ${added} member${added===1?'':'s'} added to the map.` : `Nothing new passed the relevance gate for “${node.title}”.`, added?'success':'');
   } catch(error){ toast(error.message,'error'); }
-  finally { if(button){ button.disabled=false; button.textContent=original||'Open this kind'; } }
+  finally { if(button){ button.disabled=false; button.textContent=original||'Find more members'; } }
 }
 async function growNeuralNetwork(query, centerNodeId='', triggerButton=null) {
   const cleanQuery=String(query||'').trim(); if(cleanQuery.length<2)return;
@@ -929,9 +929,9 @@ function initEvents(){
   $('#zoom-out').onclick=()=>{state.scale=Math.max(.14,state.scale-.12);renderMap();};
   $('#fit-map').onclick=()=>{if(state.focusScopeId)showFullMap();else{fitMap();renderMap();}};
   $('#nodes-layer').addEventListener('click',event=>{const target=event.target.closest('.brain-node');if(!target||state.suppressNodeClick)return;const node=state.graph.nodes.find(item=>item.id===target.dataset.id);if(!node)return;
-    // A kind opens its own branch (writers → works). Everything else keeps the
+    // An aspect opens its own branch (its members). Everything else keeps the
     // familiar behaviour of centring the card and searching around it.
-    if(node.metadata?.role==='search-type'){ void expandLayerNode(node); return; }
+    if(node.metadata?.role==='search-aspect'){ void expandLayerNode(node); return; }
     if(isLayerCard(node)){ void selectAsMapCentre(node,true); return; }
     void focusAndResearchNode(node);});
   $('#nodes-layer').addEventListener('contextmenu',event=>{const target=event.target.closest('.brain-node');if(!target)return;event.preventDefault();const node=state.graph.nodes.find(item=>item.id===target.dataset.id);if(node)void selectAsMapCentre(node,true);});
