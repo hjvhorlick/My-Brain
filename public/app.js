@@ -122,6 +122,10 @@ function isMapCard(node) {
   // visible web read as repetition rather than research.
   return !['neural-basic-evidence','neural-basic-source','neural-evidence','neural-source','neural-topic-detail','neural-topic-source'].includes(node.metadata?.role);
 }
+// Cards produced by the layered search engine carry an explicit layer, so the map can
+// show main item → kind → writer → work without guessing from titles.
+const LAYER_ROLES=new Set(['search-main','search-type','search-writer','search-work']);
+function isLayerCard(node){ return LAYER_ROLES.has(node?.metadata?.role); }
 function mapCards() {
   const cards=(state.graph.nodes || []).filter(isMapCard); if(!state.focusScopeId)return cards;
   const byId=new Map(cards.map(node=>[node.id,node]));
@@ -230,7 +234,10 @@ function renderMap() {
   $('#node-count').textContent=nodes.length; const edgeCount=$('#edge-count'); if(edgeCount) edgeCount.textContent=connections.length; $('#sources-count').textContent=state.graph.sourceCount || 0; const claimCount=$('#claim-count'); if(claimCount) claimCount.textContent=state.graph.claimCount || 0;
   $('#empty-state').hidden=nodes.length>0;
   const guide=$('#generation-guide'); guide.hidden=!nodes.length;
-  if(nodes.length) guide.innerHTML=state.focusScopeId?'<span>Chosen focus</span><span>Fresh source-backed web</span><span>Source evidence in information</span>':'<span>Main point</span><span>Distinct topic paths</span><span>Source evidence in information</span>';
+  const layered=nodes.some(isLayerCard);
+  if(nodes.length) guide.innerHTML=layered
+    ? '<span>MAIN ITEM</span><span>1 · KINDS OF IT</span><span>2 · WRITERS IN A KIND</span><span>3 · THEIR WORKS</span>'
+    : state.focusScopeId?'<span>Chosen focus</span><span>Fresh source-backed web</span><span>Source evidence in information</span>':'<span>Main point</span><span>Distinct topic paths</span><span>Source evidence in information</span>';
   const fit=$('#fit-map'); if(fit){fit.textContent=state.focusScopeId?'Full map':'Fit map';fit.title=state.focusScopeId?'Return to the full saved map':'Fit the complete map';}
   const shortcut=$('#focus-button'); if(shortcut){const label=shortcut.querySelector('span');if(label)label.textContent=state.focusScopeId?'Full map':'Fit map';shortcut.title=state.focusScopeId?'Return to the full saved map':'Fit the complete 2D map';}
   const layer=$('#nodes-layer'), rect=mapRect(); layer.replaceChildren(); state.projections=new Map();
@@ -307,7 +314,7 @@ function renderInspector(detail) {
   const candidateRootId=['discovery-root','neural-root'].includes(node.metadata?.role) ? node.id : (node.metadata?.discoveryRootId || node.metadata?.neuralRootId);
   const discoveryRootId=['discovery-root','neural-root'].includes(state.graph.nodes.find(item=>item.id===candidateRootId)?.metadata?.role) ? candidateRootId : '';
   const analysisAction=discoveryRootId ? `<section class="inspector-section discovery-action"><h3 class="section-heading">Read this focus</h3><p>Open the dictionary, an encyclopaedia article or a live list of images and video for this word. Sources are searched live and never invented.</p><div class="medium-picker"><button data-reader-for="dictionary">Dictionary</button><button data-reader-for="wikipedia">Wikipedia</button><button data-reader-for="images">Images</button><button data-reader-for="videos">Video</button></div></section>` : '';
-  panel.innerHTML=`<button class="inspect-close" id="inspector-close" aria-label="Close context">×</button><span class="type-pill">${icons[node.type]||'◈'} ${esc(typeNames[node.type]||node.type)}</span><h2 class="inspect-title">${esc(node.title)}</h2>${node.body?`<section class="inspector-section research-information"><h3 class="section-heading">Research information</h3><p class="inspect-body">${text(node.body)}</p></section>`:''}<div class="confidence-row"><div class="metric"><span>Confidence</span><b class="confidence-${esc(node.confidence)}">${esc(node.confidence)}</b></div><div class="metric"><span>Priority</span><b>${esc(friendly(node.priority))}</b></div><div class="metric"><span>Origin</span><b>${esc(node.origin)}</b></div></div>${node.type==='evidence'||evidenceConnections.length?`<section class="inspector-section"><h3 class="section-heading">Evidence chain</h3><div class="evidence-chain"><div class="chain-step">Source / material</div><div class="chain-step">Evidence: ${esc(brief(node.title,70))}</div><div class="chain-step">${evidenceConnections.length?`${evidenceConnections.length} documented relationship${evidenceConnections.length===1?'':'s'}`:'Interpretation pending'}</div></div></section>`:''}<section class="inspector-section"><h3 class="section-heading">Source-quoted claims <span>(${claims.length})</span></h3><p class="medium-help">These are retained source quotations, not automatic final conclusions.</p>${claimCards}</section><section class="inspector-section"><h3 class="section-heading">Original research sources <span>(${sources.length})</span></h3>${sourceCards}</section><section class="inspector-section medium-options"><h3 class="section-heading">Explore this focus as</h3><p class="medium-help">Map is the default: drag real thumbnails, pan and zoom. Right-click a card for its large preview. Grid remains optional; items save only when you choose Add to web.</p><div class="medium-picker"><button data-medium="wikipedia">Wikipedia</button><button data-medium="dictionary">Dictionary</button><button data-medium="websites">Web</button><button data-medium="images">Images</button><button data-medium="videos">Videos</button><button data-medium="books">Books</button><button data-medium="documents">Papers</button><button data-medium="music">Music</button></div></section><section class="inspector-section"><h3 class="section-heading">Connected thoughts <span>(${related.length})</span></h3><div class="related-list">${relatedCards}</div></section>${analysisAction}<section class="inspector-section"><h3 class="section-heading">Actions for this information</h3><div class="inspector-actions"><button class="inspector-action primary" data-research-node="${esc(node.id)}">Search around this focus</button><button class="inspector-action" data-edit="${esc(node.id)}">Edit information</button><button class="inspector-action" data-priority-node="${esc(node.id)}">Set importance</button><button class="inspector-action" data-connect="${esc(node.id)}">Connect to a word</button><button class="inspector-action" data-attach-node="${esc(node.id)}">Attach a file</button><button class="inspector-action danger" data-delete="${esc(node.id)}">Delete</button></div></section>`;
+  panel.innerHTML=`<button class="inspect-close" id="inspector-close" aria-label="Close context">×</button><span class="type-pill">${icons[node.type]||'◈'} ${esc(typeNames[node.type]||node.type)}</span><h2 class="inspect-title">${esc(node.title)}</h2>${node.body?`<section class="inspector-section research-information"><h3 class="section-heading">Research information</h3><p class="inspect-body">${text(node.body)}</p></section>`:''}<div class="confidence-row"><div class="metric"><span>Confidence</span><b class="confidence-${esc(node.confidence)}">${esc(node.confidence)}</b></div><div class="metric"><span>Priority</span><b>${esc(friendly(node.priority))}</b></div><div class="metric"><span>Origin</span><b>${esc(node.origin)}</b></div></div>${node.type==='evidence'||evidenceConnections.length?`<section class="inspector-section"><h3 class="section-heading">Evidence chain</h3><div class="evidence-chain"><div class="chain-step">Source / material</div><div class="chain-step">Evidence: ${esc(brief(node.title,70))}</div><div class="chain-step">${evidenceConnections.length?`${evidenceConnections.length} documented relationship${evidenceConnections.length===1?'':'s'}`:'Interpretation pending'}</div></div></section>`:''}<section class="inspector-section"><h3 class="section-heading">Source-quoted claims <span>(${claims.length})</span></h3><p class="medium-help">These are retained source quotations, not automatic final conclusions.</p>${claimCards}</section><section class="inspector-section"><h3 class="section-heading">Original research sources <span>(${sources.length})</span></h3>${sourceCards}</section><section class="inspector-section medium-options"><h3 class="section-heading">Explore this focus as</h3><p class="medium-help">Map is the default: drag real thumbnails, pan and zoom. Right-click a card for its large preview. Grid remains optional; items save only when you choose Add to web.</p><div class="medium-picker"><button data-medium="wikipedia">Wikipedia</button><button data-medium="dictionary">Dictionary</button><button data-medium="websites">Web</button><button data-medium="images">Images</button><button data-medium="videos">Videos</button><button data-medium="books">Books</button><button data-medium="documents">Papers</button><button data-medium="music">Music</button></div></section>${node.metadata?.role==='search-type'?`<section class="inspector-section discovery-action"><h3 class="section-heading">Open this kind</h3><p>Writers in “${esc(node.title)}” come first, then their works. Only this branch grows; the rest of the map stays as it is.</p><button class="minor-button" data-expand-layer="${esc(node.id)}">Find writers and works</button></section>`:''}<section class="inspector-section"><h3 class="section-heading">Connected thoughts <span>(${related.length})</span></h3><div class="related-list">${relatedCards}</div></section>${analysisAction}<section class="inspector-section"><h3 class="section-heading">Actions for this information</h3><div class="inspector-actions"><button class="inspector-action primary" data-research-node="${esc(node.id)}">Search around this focus</button><button class="inspector-action" data-edit="${esc(node.id)}">Edit information</button><button class="inspector-action" data-priority-node="${esc(node.id)}">Set importance</button><button class="inspector-action" data-connect="${esc(node.id)}">Connect to a word</button><button class="inspector-action" data-attach-node="${esc(node.id)}">Attach a file</button><button class="inspector-action danger" data-delete="${esc(node.id)}">Delete</button></div></section>`;
   $('#inspector-close').onclick=()=>selectNode(null);
   $$('[data-select]').forEach(button=>button.onclick=()=>{const relatedNode=state.graph.nodes.find(item=>item.id===button.dataset.select);if(relatedNode)focusAndResearchNode(relatedNode);});
   panel.querySelector('[data-research-node]')?.addEventListener('click',()=>focusAndResearchNode(node));
@@ -318,6 +325,7 @@ function renderInspector(detail) {
   panel.querySelector('[data-connect]')?.addEventListener('click',()=>openConnectModal(node));
   panel.querySelector('[data-attach-node]')?.addEventListener('click',()=>$('#file-input').click());
   panel.querySelectorAll('[data-read-source]').forEach(button=>button.addEventListener('click',event=>openSavedSource(event.currentTarget.dataset.readSource)));
+  panel.querySelector('[data-expand-layer]')?.addEventListener('click',event=>expandLayerNode(node,event.currentTarget));
   panel.querySelectorAll('[data-reader-for]').forEach(button=>button.addEventListener('click',()=>openReaderForNode(button.dataset.readerFor,node)));
   panel.querySelector('[data-delete]')?.addEventListener('click',()=>deleteNode(node));
 }
@@ -455,6 +463,55 @@ function returnedFocusCardIds(result = {}) {
     for (const candidate of [branch?.topic,branch?.concept]) if(candidate?.id) ids.push(candidate.id);
   }
   return new Set(ids.filter(Boolean));
+}
+// A layered search: main item → kinds → writers → works. The server runs the procedure;
+// this only runs the first pass and lets a kind expand on demand.
+async function runLayeredSearch(query, triggerButton=null){
+  const clean=String(query||'').trim(); if(clean.length<2){ toast('Enter at least two characters.','error'); return; }
+  const status=$('#empty-search-status');
+  if(status) status.textContent=`Finding what “${clean}” is, then its kinds, writers and works…`;
+  showResearchProgress(clean);
+  const original=triggerButton?.textContent;
+  if(triggerButton){ triggerButton.disabled=true; triggerButton.textContent='Searching…'; }
+  document.body.classList.add('initial-search-running');
+  try {
+    const result=await api(`/api/projects/${state.project.id}/search-engine`,{method:'POST',body:JSON.stringify({query:clean})});
+    state.selectedId=null; document.body.classList.remove('has-selection','has-inspector');
+    state.focusScopeId=null; state.focusBranchIds.clear();
+    await loadGraph();
+    const center=state.graph.nodes.find(node=>node.id===result.main.id)||result.main;
+    state.centerId=center.id;
+    buildTwoDimensionalLayout(); fitMap(); renderMap();
+    hideResearchProgress(600);
+    const count=(result.types?.length||0);
+    toast(`${result.main.title}: ${count} kind${count===1?'':'s'} mapped. Open a kind to see its writers and works.`,'success');
+    await selectNode(center.id,true);
+  } catch(error){
+    hideResearchProgress();
+    toast(error.message,'error');
+    if(status) status.textContent=error.message;
+  } finally {
+    document.body.classList.remove('initial-search-running');
+    if(triggerButton){ triggerButton.disabled=false; triggerButton.textContent=original; }
+  }
+}
+// Opening a kind asks for that branch's writers and works only — the rest of the map
+// is untouched, which is what keeps a search fast and the picture readable.
+async function expandLayerNode(node, button=null){
+  if(!node) return;
+  const original=button?.textContent;
+  if(button){ button.disabled=true; button.textContent='Opening…'; }
+  toast(`Finding writers and works in “${node.title}”…`);
+  try {
+    const result=await api(`/api/nodes/${node.id}/expand`,{method:'POST',body:JSON.stringify({})});
+    await loadGraph();
+    state.centerId=state.graph.nodes.find(item=>item.id===node.id)?.id || state.centerId;
+    buildTwoDimensionalLayout(); fitMap(); renderMap();
+    await selectNode(node.id,true);
+    const writers=(result.writers||[]).length, works=(result.works||[]).length;
+    toast(writers||works ? `${node.title}: ${writers} writer${writers===1?'':'s'} and ${works} work${works===1?'':'s'} added.` : `No writers or works passed the relevance gate for “${node.title}”.`, writers||works?'success':'');
+  } catch(error){ toast(error.message,'error'); }
+  finally { if(button){ button.disabled=false; button.textContent=original||'Open this kind'; } }
 }
 async function growNeuralNetwork(query, centerNodeId='', triggerButton=null) {
   const cleanQuery=String(query||'').trim(); if(cleanQuery.length<2)return;
@@ -816,10 +873,16 @@ async function openLinkReader({title='',url=''}={}){
 
 async function uploadFiles(fileList){if(!fileList?.length)return;const form=new FormData();[...fileList].forEach(file=>form.append('files',file));try{toast(`Uploading ${fileList.length} file${fileList.length===1?'':'s'}…`);const response=await fetch(`/api/projects/${state.project.id}/files`,{method:'POST',body:form});const files=await response.json();if(!response.ok)throw new Error(files.error||'Upload failed.');for(const f of files){const type=f.mime_type.startsWith('image/')?'image':f.mime_type.startsWith('video/')?'video':'document';const parent=state.graph.nodes.find(node=>node.id===state.selectedId);const angle=(state.graph.nodes.length*1.618)%6.28;const created=await api(`/api/projects/${state.project.id}/nodes`,{method:'POST',body:JSON.stringify({type,title:f.original_name,body:'User-provided research file. Open it in the file reader to read or play it.',priority:'informational',confidence:'unverified',origin:'user',x:(Number(parent?.x)||0)+290*Math.cos(angle),y:(Number(parent?.y)||0)+210*Math.sin(angle),metadata:{fileId:f.id,mimeType:f.mime_type,attachedTo:parent?.id||null}})});if(parent)await api(`/api/projects/${state.project.id}/connections`,{method:'POST',body:JSON.stringify({from_node_id:parent.id,to_node_id:created.id,relationship:'documents',notes:'User attached this local file to the selected thought.'})});}await loadGraph();toast(`${files.length} file${files.length===1?'':'s'} added${state.selectedId?' to the selected thought':' locally to your Brain'}.`,'success');}catch(error){toast(error.message,'error');}finally{$('#file-input').value='';}}
 // A single command entry point: the mode decides which reader or search runs.
+function scopeForWordCount(value=''){
+  // One or two words are a topic to understand, so they run the layered procedure.
+  // Longer text is a question or a phrase, which the source search handles better.
+  return String(value).trim().split(/\s+/).filter(Boolean).length <= 2 ? 'layer' : 'sources';
+}
 function runCommand(value, mode='web'){
   if(mode==='dictionary') return openReader({kind:'dictionary',term:value});
   if(mode==='wikipedia') return openReader({kind:'wikipedia',title:value});
   if(mode==='media') return openSourceSearchModal(value,false,'','images');
+  if(scopeForWordCount(value)==='layer') return runLayeredSearch(value);
   return openSourceSearchModal(value);
 }
 function promptReaderUrl(){
@@ -855,7 +918,7 @@ function initEvents(){
     const val=action.replace(/^Search a topic$/,'South African history'); $('#command-input').value=val; state.mode='web'; setModeUI(); $('#command-input').focus();
   });
   const emptyInput=$('#empty-command-input'), emptyStatus=$('#empty-search-status');
-  const beginInitialGrowth=()=>{const query=emptyInput.value.trim();if(query.length<2)return;state.mode='web';setModeUI();growNeuralNetwork(query);};
+  const beginInitialGrowth=()=>{const query=emptyInput.value.trim();if(query.length<2)return;state.mode='web';setModeUI();if(scopeForWordCount(query)==='layer')runLayeredSearch(query);else openSourceSearchModal(query);};
   // Typing only offers reviewable spelling/topic choices. Enter is the deliberate
   // commitment: the exact text in the long centre box is the search request.
   $('#empty-command-form').onsubmit=event=>{event.preventDefault();hideTypingAssist($('#empty-typing-assist'));beginInitialGrowth();};
@@ -865,7 +928,12 @@ function initEvents(){
   $('#zoom-in').onclick=()=>{state.scale=Math.min(2.4,state.scale+.12);renderMap();};
   $('#zoom-out').onclick=()=>{state.scale=Math.max(.14,state.scale-.12);renderMap();};
   $('#fit-map').onclick=()=>{if(state.focusScopeId)showFullMap();else{fitMap();renderMap();}};
-  $('#nodes-layer').addEventListener('click',event=>{const target=event.target.closest('.brain-node');if(!target||state.suppressNodeClick)return;const node=state.graph.nodes.find(item=>item.id===target.dataset.id);if(node)void focusAndResearchNode(node);});
+  $('#nodes-layer').addEventListener('click',event=>{const target=event.target.closest('.brain-node');if(!target||state.suppressNodeClick)return;const node=state.graph.nodes.find(item=>item.id===target.dataset.id);if(!node)return;
+    // A kind opens its own branch (writers → works). Everything else keeps the
+    // familiar behaviour of centring the card and searching around it.
+    if(node.metadata?.role==='search-type'){ void expandLayerNode(node); return; }
+    if(isLayerCard(node)){ void selectAsMapCentre(node,true); return; }
+    void focusAndResearchNode(node);});
   $('#nodes-layer').addEventListener('contextmenu',event=>{const target=event.target.closest('.brain-node');if(!target)return;event.preventDefault();const node=state.graph.nodes.find(item=>item.id===target.dataset.id);if(node)void selectAsMapCentre(node,true);});
   $('#nodes-layer').addEventListener('pointerdown',event=>{const target=event.target.closest('.brain-node');if(!target||event.button!==0)return;const node=state.graph.nodes.find(item=>item.id===target.dataset.id);if(!node)return;event.preventDefault();event.stopPropagation();if(node.id===state.centerId){state.drag={kind:'pan',selectedCenterId:node.id,startX:event.clientX,startY:event.clientY,origPanX:state.camera.panX,origPanY:state.camera.panY,moved:false};target.setPointerCapture?.(event.pointerId);return;}const offset=node.metadata?.manualOffset||{};state.drag={kind:'node',id:node.id,startX:event.clientX,startY:event.clientY,offsetX:Number(offset.x)||0,offsetY:Number(offset.y)||0,moved:false};target.setPointerCapture?.(event.pointerId);});
   $('#canvas-wrap').addEventListener('pointerdown',event=>{if(event.target.closest('.brain-node, .canvas-controls, .legend, .generation-guide, input, textarea, select, button, a, form'))return;event.preventDefault();state.drag={kind:'pan',startX:event.clientX,startY:event.clientY,origPanX:state.camera.panX,origPanY:state.camera.panY};event.currentTarget.setPointerCapture?.(event.pointerId);});

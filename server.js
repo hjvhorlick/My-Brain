@@ -11,6 +11,7 @@ import { collectSource, inferSourceType, assessReliability } from './lib/sourceC
 import { discoverFreeSources } from './lib/freeSourceSearch.js';
 import { analyseTopic, researchConfig, rankSources, extractSourceClaims, detectPotentialConflicts, findKnowledgeGaps, shouldRunTargetedCycle, planTargetedQueries, researchSummary } from './lib/researchEngine.js';
 import { dictionaryLookup, wikipediaArticle, wikipediaSummary, resolvePlayback, readWebPage } from './lib/reference.js';
+import { runSearch, parseIntent, engineConfig } from './lib/searchEngine.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -913,6 +914,212 @@ app.post('/api/projects/:projectId/neural-grow', async (req, res, next) => {
     if (session) db.prepare('UPDATE research_sessions SET status=?,error=?,completed_at=? WHERE id=?').run('failed',String(e.message || e),now(),session.id);
     next(e);
   }
+});
+
+/* ------------------------------------------------------- layered search engine
+   One search runs a procedure, not a single query:
+     main item → its kinds → writers in a kind → works
+   Each layer is persisted as real map cards, so the map itself shows the answer.
+*/
+
+const LAYER_ROLES = { main: 'search-main', type: 'search-type', writer: 'search-writer', work: 'search-work' };
+
+function searchNode(projectId, { role, generation, title, body, type = 'concept', priority = 'informational', metadata = {} }) {
+  return insertNode({
+    project_id: projectId, type, title, body,
+    priority, confidence: 'unverified', origin: 'web',
+    metadata: { role: LAYER_ROLES[role], generation, ...metadata }
+  });
+}
+
+// Writers and works in an expanded kind are reused when the same kind is re-opened,
+// so clicking around does not duplicate the map.
+function existingLayerNode(projectId, role, title, parentId) {
+  const wanted = normalisedWords(title);
+  return db.prepare('SELECT * FROM nodes WHERE project_id=?').all(projectId).map(hydrateNode)
+    .find(node => node.metadata?.role === LAYER_ROLES[role]
+      && normalisedWords(node.title) === wanted
+      && (!parentId || node.metadata?.parentId === parentId));
+}
+
+function persistSearchSource(projectId, item, rootId, sessionId, label) {
+  if (!item?.url) return null;
+  const source = persistSource(projectId, {
+    title: item.title, website: item.website, url: item.url, author: item.author || '', published_date: item.publishedDate || '',
+    source_type: item.kind || inferSourceType(item.url), reliability: assessReliability(item.url, item.kind || inferSourceType(item.url)),
+    relevant_passage: item.snippet || '', extracted_text: String(item.extractedText || '').slice(0, 12000),
+    collection_status: item.extractedText ? 'collected from public index' : 'metadata queued for collection',
+    metadata: { discovery: item.provider || 'public source discovery', query: label, providerMetadata: item.metadata || {}, sessionId, thumbnail: item.thumbnail || '', role: 'search-layer-source', importedAt: now() }
+  });
+  captureSourceVersion(source);
+  if (rootId) attachSource(source.id, rootId, 'supports', `Evidence for this ${label}.`);
+  return source;
+}
+
+/**
+ * Pass 1 of a search: the main item and its kinds.
+ * Sidebar: nothing is written unless the relevance gate produced something.
+ */
+app.post('/api/projects/:projectId/search-engine', async (req, res, next) => {
+  const projectId = req.params.projectId;
+  let session = null;
+  try {
+    ensureProject(projectId);
+    const query = String(req.body.query || '').trim().slice(0, 300);
+    if (query.length < 2) throw badRequest('Enter at least two characters to search.');
+    const config = engineConfig(parseJson(process.env.BRAIN_SEARCH_CONFIG, {}));
+    const intent = parseIntent(query);
+    session = { id: uid('session'), project_id: projectId, request: query, selected_node_id: null, status: 'running', plan: '[]', analysis: '{}', error: '', model: 'layered search engine', created_at: now(), completed_at: null };
+    db.prepare('INSERT INTO research_sessions (id,project_id,request,selected_node_id,status,plan,analysis,error,model,created_at,completed_at) VALUES (@id,@project_id,@request,@selected_node_id,@status,@plan,@analysis,@error,@model,@created_at,@completed_at)').run(session);
+
+    const result = await runSearch({
+      query, config,
+      discover: (q, type, options) => discoverFreeSources(q, type, options),
+      readArticle: title => wikipediaArticle(title)
+    });
+    logResearchDecision(session.id, 'procedure', 'Ran the layered search procedure', `Interpreted “${query}” as ${intent.main}${intent.facet ? ` narrowed by ${intent.facet}` : ''}.`, { query, steps: result.steps });
+
+    // A search that found nothing at all must not leave a lone card behind, and it must
+    // say which of the two things happened: nothing was asked, or nothing was relevant.
+    if (!result.types.length && !result.writers.length && !result.works.length) {
+      if (result.connectivity === 'offline') {
+        const names = result.providers.map(provider => provider.name).join(', ');
+        throw Object.assign(new Error(`No public source index could be reached from this server (${names || 'all indexes'}). Nothing was searched and nothing was added to the map. Check this machine's internet connection, then try again.`), { status: 502 });
+      }
+      throw Object.assign(new Error(`The public indexes answered but nothing relevant enough was found for “${query}”. Nothing was added to the map — try a more specific word, or add a second word to narrow the topic.`), { status: 502 });
+    }
+
+    const root = searchNode(projectId, {
+      role: 'main', generation: 0, type: 'concept', priority: 'research_required',
+      title: result.main.title, body: result.main.body,
+      metadata: { query, mainTerm: intent.main, facet: intent.facet, image: result.main.image, sourceUrl: result.main.url, provider: result.main.provider, sessionId: session.id, procedure: 'layered' }
+    });
+    const mainSource = persistSearchSource(projectId, { title: result.main.title, url: result.main.url, website: result.main.provider, snippet: result.main.body, kind: 'article' }, root.id, session.id, 'Main item');
+
+    const created = { types: [], writers: [], works: [] };
+    for (const [index, entry] of result.types.entries()) {
+      const typeNode = searchNode(projectId, {
+        role: 'type', generation: 1, title: entry.title, body: entry.explanation || `A kind of ${intent.main}.`, type: 'concept', priority: 'medium',
+        metadata: { query, mainTerm: intent.main, facet: intent.facet, parentId: root.id, sessionId: session.id, score: entry.score, why: entry.why }
+      });
+      insertConnection({ project_id: projectId, from_node_id: typeNode.id, to_node_id: root.id, relationship: 'part_of', confidence: 'unverified', notes: `A kind of ${result.main.title}.` });
+      created.types.push(typeNode);
+      // Writers are known now; only their cards and one evidence source are drawn.
+      for (const writer of entry.writers) {
+        const writerNode = searchNode(projectId, {
+          role: 'writer', generation: 2, title: writer.title, body: writer.body || '', type: 'person', priority: 'medium',
+          metadata: { query, parentId: typeNode.id, typeTitle: entry.title, sourceUrl: writer.url, provider: writer.provider, thumbnail: writer.thumbnail, sessionId: session.id, score: writer.score }
+        });
+        insertConnection({ project_id: projectId, from_node_id: writerNode.id, to_node_id: typeNode.id, relationship: 'related_to', confidence: 'unverified', notes: `A writer in ${entry.title}.` });
+        persistSearchSource(projectId, { ...writer, kind: 'article' }, writerNode.id, session.id, 'Writer');
+        created.writers.push(writerNode);
+      }
+    }
+
+    // Works for writers already identified (kept to the configured ceiling).
+    const writerRows = new Map(created.writers.map(node => [normalisedWords(node.title), node]));
+    for (const work of result.works) {
+      const writerNode = writerRows.get(normalisedWords(work.writerTitle));
+      const typeNode = created.types.find(node => normalisedWords(node.title) === normalisedWords(work.typeTitle));
+      if (!typeNode) continue;
+      const workNode = searchNode(projectId, {
+        role: 'work', generation: writerNode ? 3 : 2, title: work.title, body: work.body || '', type: 'document', priority: 'informational',
+        metadata: { query, parentId: writerNode?.id || typeNode.id, typeTitle: work.typeTitle, writerTitle: work.writerTitle, sourceUrl: work.url, provider: work.provider, thumbnail: work.thumbnail, publishedDate: work.publishedDate, sessionId: session.id, score: work.score }
+      });
+      insertConnection({ project_id: projectId, from_node_id: workNode.id, to_node_id: (writerNode || typeNode).id, relationship: writerNode ? 'created' : 'related_to', confidence: 'unverified', notes: writerNode ? `A work by ${work.writerTitle}.` : `An example of ${work.typeTitle}.` });
+      persistSearchSource(projectId, { ...work, kind: 'article' }, workNode.id, session.id, 'Work');
+      created.works.push(workNode);
+    }
+
+    const analysis = { mode: 'layered-search', intent, main: result.main.title, types: created.types.map(node => node.title), writers: created.writers.map(node => node.title), works: created.works.map(node => node.title), steps: result.steps, notes: result.notes, layerSizes: config };
+    const timestamp = now();
+    db.prepare('UPDATE research_sessions SET status=?,analysis=?,selected_node_id=?,completed_at=? WHERE id=?').run('completed', JSON.stringify(analysis), root.id, timestamp, session.id);
+    db.prepare('INSERT INTO search_queries (id,session_id,query,created_at) VALUES (?,?,?,?)').run(uid('query'), session.id, query, timestamp);
+    db.prepare('UPDATE projects SET updated_at=? WHERE id=?').run(timestamp, projectId);
+    res.status(201).json({
+      sessionId: session.id, intent, main: root, types: created.types, writers: created.writers, works: created.works,
+      steps: result.steps, notes: result.notes, graph: mapGraph(projectId),
+      privacy: 'Public indexes were queried directly by this server. No AI was involved and nothing was generated.'
+    });
+  } catch (e) {
+    if (session) db.prepare('UPDATE research_sessions SET status=?,error=?,completed_at=? WHERE id=?').run('failed', String(e.message || e), now(), session.id);
+    next(e);
+  }
+});
+
+/**
+ * Pass 2/3: open a kind. This is when writers and works are found, so the first
+ * search stays small and fast.
+ */
+app.post('/api/nodes/:nodeId/expand', async (req, res, next) => {
+  try {
+    const node = getNode(req.params.nodeId);
+    if (!node) throw Object.assign(new Error('That card no longer exists.'), { status: 404 });
+    const hydrated = hydrateNode(node);
+    const role = hydrated.metadata?.role;
+    if (role !== LAYER_ROLES.type) throw badRequest('Only a kind of the main item can be expanded.');
+    const projectId = node.project_id;
+    const config = engineConfig(parseJson(process.env.BRAIN_SEARCH_CONFIG, {}));
+    const intent = parseIntent(hydrated.metadata?.query || hydrated.title);
+    const typeTitle = hydrated.title;
+
+    // Writers inside this kind.
+    const writerSearch = await discoverFreeSources(`${typeTitle} ${intent.main} authors writers`, 'all', { focus: intent.main });
+    const persons = (writerSearch.results || []).filter(item => item.kind !== 'image');
+    const { rankWriters } = await import('./lib/searchEngine.js');
+    const picks = rankWriters(persons, intent, typeTitle, config);
+
+    const writerNodes = [];
+    for (const writer of picks) {
+      let writerNode = existingLayerNode(projectId, 'writer', writer.title, hydrated.id);
+      if (!writerNode) {
+        writerNode = searchNode(projectId, {
+          role: 'writer', generation: 2, title: writer.title, body: writer.body || '', type: 'person', priority: 'medium',
+          metadata: { query: intent.original, parentId: hydrated.id, typeTitle, sourceUrl: writer.url, provider: writer.provider, thumbnail: writer.thumbnail, score: writer.score }
+        });
+        insertConnection({ project_id: projectId, from_node_id: writerNode.id, to_node_id: hydrated.id, relationship: 'related_to', confidence: 'unverified', notes: `A writer in ${typeTitle}.` });
+        persistSearchSource(projectId, { ...writer, kind: 'article' }, writerNode.id, null, 'Writer');
+      }
+      writerNodes.push(writerNode);
+    }
+
+    // Works: per writer when one is known, otherwise the kind's strongest examples.
+    const workNodes = [];
+    const workSources = writerNodes.length
+      ? []
+      : (await discoverFreeSources(`${typeTitle} ${intent.main} examples`, 'books', { focus: intent.main })).results || [];
+    const { rankWorks } = await import('./lib/searchEngine.js');
+    const workPicks = writerNodes.length
+      ? (await Promise.all(writerNodes.map(async writerNode => {
+        const found = await discoverFreeSources(`${writerNode.title} ${typeTitle} ${intent.main}`, 'books', { focus: intent.main });
+        return rankWorks(found.results || [], intent, typeTitle, writerNode.title, config).map(work => ({ ...work, writerTitle: writerNode.title, writerNode }));
+      }))).flat()
+      : rankWorks(workSources, intent, typeTitle, '', config).map(work => ({ ...work, writerTitle: '', writerNode: null }));
+
+    for (const work of workPicks) {
+      const parentId = work.writerNode?.id || hydrated.id;
+      let workNode = existingLayerNode(projectId, 'work', work.title, parentId);
+      if (!workNode) {
+        workNode = searchNode(projectId, {
+          role: 'work', generation: work.writerNode ? 3 : 2, title: work.title, body: work.body || '', type: 'document', priority: 'informational',
+          metadata: { query: intent.original, parentId, typeTitle, writerTitle: work.writerTitle || '', sourceUrl: work.url, provider: work.provider, thumbnail: work.thumbnail, publishedDate: work.publishedDate, score: work.score }
+        });
+        insertConnection({ project_id: projectId, from_node_id: workNode.id, to_node_id: parentId, relationship: work.writerNode ? 'created' : 'related_to', confidence: 'unverified', notes: work.writerNode ? `A work by ${work.writerTitle}.` : `An example of ${typeTitle}.` });
+        persistSearchSource(projectId, { ...work, kind: 'article' }, workNode.id, null, 'Work');
+      }
+      workNodes.push(workNode);
+    }
+
+    db.prepare('UPDATE projects SET updated_at=? WHERE id=?').run(now(), projectId);
+    res.status(201).json({
+      type: hydrated, writers: writerNodes, works: workNodes,
+      steps: [
+        { step: `find writers in “${typeTitle}”`, found: writerNodes.map(node => node.title) },
+        { step: `find works in “${typeTitle}”`, found: workNodes.map(node => node.title) }
+      ],
+      graph: mapGraph(projectId)
+    });
+  } catch (e) { next(e); }
 });
 
 // A source explicitly selected by the user from direct discovery or pasted as a URL.
