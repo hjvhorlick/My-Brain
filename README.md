@@ -1,10 +1,13 @@
-# The Brain — AI research & knowledge mapping
+# The Brain — search, read, map
 
-A local-first, source-aware research application that turns a web research request into an inspectable knowledge graph.
+A local-first research workspace that searches public source indexes directly and then lets
+you **read what those sources actually say inside the application**.
 
-> **Research → analyse → organise → connect → explain**
+> **Search → read → save → connect → review**
 
-The application deliberately does **not** seed a demo graph, fabricate search results, or fake AI answers. It begins as an empty Brain. Direct Google discovery can run without Gemini; a Gemini API key is needed only for AI analysis, grounded research synthesis and file analysis.
+There is **no AI in this application**. Nothing is generated, summarised or rewritten by a
+model, there is no API key to buy or store, and no third-party application or embedded
+widget is used for search, reading or playback. Every viewer is written in this repository.
 
 ## Run it
 
@@ -15,117 +18,110 @@ The application deliberately does **not** seed a demo graph, fabricate search re
    npm install
    ```
 
-3. Configure Gemini server-side:
+   If a prebuilt SQLite binary is unavailable on your platform, build it from the local
+   Node headers: `npm_config_nodedir=/usr/local npm install`.
 
-   ```bash
-   cp .env.example .env
-   # edit .env and set GEMINI_API_KEY
-   ```
-
-   Create an API key in Google AI Studio. `GEMINI_MODEL` defaults to `gemini-3.6-flash`, the current production model recommended by Gemini when the former 2.5 model is retired. The model is isolated in the provider layer for future upgrades.
-
-4. Start the local application:
+3. Start the application:
 
    ```bash
    npm start
    ```
 
-5. Open `http://localhost:4173`.
+4. Open `http://localhost:4173`.
 
-`npm run dev` uses Node’s watcher while developing.
+`npm run dev` uses Node's watcher while developing. The server reads `PORT` (default 4173)
+and binds `0.0.0.0`.
 
-## What works now
+## What it does
 
-### Knowledge map
+### Search public indexes — no key, no account
 
-- Create, edit, delete, manually connect and drag nodes.
-- Semantic connections: related to, caused, influenced, supports, contradicts, evidence for / against, part of, and more.
-- Clear visual node types: ideas, concepts, people, events, questions, evidence, tasks, sources and multimodal files.
-- Independent **priority** and **confidence** values.
-- A project picker and new-project flow.
-- A local knowledge search over nodes, saved source extracts and assistant conversation.
+| Type | Public index |
+| --- | --- |
+| Web / articles | Wikipedia |
+| Wikipedia | Wikipedia article index (reader-first) |
+| Dictionary | dictionaryapi.dev (Wiktionary-derived) |
+| Images | Wikimedia Commons |
+| Video | Internet Archive |
+| Audio | Internet Archive |
+| Papers | OpenAlex, Crossref |
+| Documents / books | arXiv, Internet Archive |
 
-### Free direct source discovery
+Every result keeps its provider, original URL and provider-supplied metadata. A source that
+cannot be collected is shown as unavailable — never invented or substituted.
 
-- **Search web** searches real public-source indexes directly; it does not call Gemini and needs no customer account or API key. The built-in sources are Wikipedia (articles), Wikimedia Commons (images), OpenAlex and Crossref (academic papers), arXiv and Internet Archive (documents).
-- The source type controls make focused requests to the relevant public index. The initial requests run in parallel and retain the provider name, original URL, author/date where supplied, snippet and thumbnail where available.
-- **Save to Brain** collects the selected original URL locally. A collection timeout, blocked page or non-HTML source is kept transparent instead of fabricated. **Save URL** supports a real public website, image or document not in the free indexes.
-- This is a free source-discovery layer, not an unrestricted general-web search engine. A commercial, full-web SERP provider could be added behind the same provider abstraction later if the product owner chooses to fund it.
+### Read it in the app
 
-### Gemini research pipeline
+Nothing opens in a third-party embed. Each format has a viewer built here:
 
-`POST /api/projects/:projectId/research` is a real research pipeline:
+- **Dictionary reader** — headword, phonetics, audio pronunciation, parts of speech, senses,
+  examples, synonyms/antonyms, and a Wikipedia cross-reference.
+- **Wikipedia reader** — the article's own sections with a section jump bar, images, linked
+  articles, and "read the original" as a fallback.
+- **Web reader** — the page is fetched server-side and reduced to readable paragraphs and its
+  outgoing links. Links open in the reader, not in a new tab.
+- **Image viewer** — zoom, brightness, rotation, and PNG/JPG download converted in the browser.
+- **Video and audio player** — the server resolves a direct playable file (Internet Archive
+  metadata, Wikimedia Commons originals, or a direct media URL) and plays it with the
+  browser's own `<video>`/`<audio>` controls. If a source only offers its own player, the app
+  says so and shows the poster plus the original link instead of pretending to play it.
+- **Document reader** — PDFs from a saved file or URL, and a plain-text reader for text files.
+- **Local files** — images, video, audio, PDFs and text saved in the workspace open in the
+  same viewers.
 
-```text
-User request / selected node context
-  → context engine (selected node + direct graph neighbourhood + recent research)
-  → Gemini research planner
-  → Gemini Google Search grounding
-  → grounded web result URLs
-  → server-side public-page collection / metadata extraction
-  → Gemini source-aware analysis
-  → proposed nodes, relationships, claims, conflicts and research gaps
-  → explicit user review
-  → accepted knowledge graph + evidence chain
-```
+### Map the result
 
-- Gemini is behind `lib/geminiProvider.js`; the rest of the app is not hard-wired to the model request implementation.
-- Google Search grounding is enabled only for web-research calls. The server persists only URLs Gemini returned in its grounding metadata, then attempts to collect public HTML from those original pages.
-- The collector stores title, website, author/date where discoverable, retrieved date, type, a transparent heuristic reliability signal, short extract, and collection status. A blocked or non-HTML source is shown as such rather than silently replaced.
-- **Recheck** in the Sources view revisits an original page and retains an immutable SQLite snapshot when its collected extract changes, returning a visible `SOURCE UPDATED` result rather than silently overwriting the prior research trail.
-- Research results are staged for review. The user can accept all or only selected proposed nodes.
-- Accepted claims create a visual evidence layer: **source node → evidence node → research-root conclusion**, with support/against relationships and source cards in the inspector.
-- Conflicts and gaps returned by Gemini are retained visibly; gaps become items in the research queue.
+- Create, edit, delete, connect and drag nodes; priorities and confidence are yours.
+- A search grows a 2D web: topic → keyword → evidence → source, with duplicate source
+  quotations merged and a transparent relevance score for every candidate.
+- Save any result to the map as a source branch, or save a page straight from the web reader.
+- Saved sources reopen in the reader that fits them, and **Recheck** retains an immutable
+  snapshot when a page's extract changes.
+- Local knowledge search over nodes, sources and saved text (`⌘K`).
 
-### Assistant and multimodal files
+### Serendipity
 
-- **Ask Brain** uses the selected local graph context, rather than sending the whole database every time. Questions that explicitly request sources/evidence/search may use Gemini Search grounding.
-- Upload image, document, text, audio or video material. It remains local until the user presses **Analyze with Gemini**. The analysis is real multimodal Gemini analysis, and can be saved as an evidence node connected to the uploaded-file node.
-- Inline file analysis has an intentional 18 MB limit. A larger-media adapter can be added using Gemini Files API without changing the graph layer.
-
-### Research trail
-
-SQLite stores projects, nodes, connections, sources, evidence associations, research sessions, grounding search queries, assistant conversations, files, research queue, tags, timeline-event storage, collections and settings storage. The **Research trail** view displays successful and failed sessions as an auditable record.
+The **Serendipity** chip reads Wikipedia's "Today's featured article" page and opens one of the
+linked articles at random. The choice comes from a real public page — nothing is invented.
 
 ## Architecture
 
 ```text
-public/                 Browser UI: interactive canvas, inspector, command bar
+public/                 Browser UI: canvas map, inspector, readers, command bar
+  readers.css           Styling for the in-app viewers
 server.js               Express API, validation, workflow orchestration
-lib/geminiProvider.js   Dedicated Gemini service abstraction
-lib/sourceCollector.js  Server-side page collector and transparent source classifier
+lib/reference.js        Dictionary, Wikipedia, web-page and media readers (server side)
+lib/freeSourceSearch.js Public-index search adapters (keyless, no SDK)
+lib/sourceCollector.js  Page collector and transparent source classifier
+lib/researchEngine.js   Ranking, source quotations, duplicate and gap detection
 lib/db.js               SQLite schema and data hydration helpers
 data/brain.db           Created at runtime; local workspace data (ignored by git)
-uploads/                Created at runtime; local uploaded material (ignored by git)
+uploads/                Created at runtime; local files (ignored by git)
 ```
 
-The frontend never sees the Gemini key. It talks only to same-origin `/api` routes. The key belongs in `.env`, which is ignored by git.
+### API
 
-## Privacy model
+| Route | Purpose |
+| --- | --- |
+| `GET /api/status` | Source indexes in use; confirms no key is needed |
+| `GET /api/projects`, `POST /api/projects` | Projects |
+| `GET /api/projects/:id/graph` | Nodes, connections, sources, open questions |
+| `POST /api/projects/:id/nodes`, `PATCH/DELETE /api/nodes/:id` | Map editing |
+| `GET /api/discovery?q=&type=` | Search public indexes |
+| `GET /api/typing-suggestions?q=` | Real Wikipedia title suggestions and spelling hints |
+| `POST /api/projects/:id/neural-grow` | Grow the map from a search |
+| `POST /api/projects/:id/sources/import` | Save one source (URL, metadata) |
+| `POST /api/sources/:id/recheck` | Revisit a page and snapshot changes |
+| `GET /api/read/dictionary?q=` | Dictionary entry + Wikipedia cross-reference |
+| `GET /api/read/wikipedia?title=` | Article sections, images and links |
+| `GET /api/read/page?url=` | Readable page text and links |
+| `GET /api/read/playback?url=` | Direct playable media URL where one exists |
+| `GET /api/files/:id/view`, `/text` | Inline preview of a saved local file |
 
-The UI’s **Privacy & data** page describes this directly:
+## Design rules this codebase keeps
 
-- Sent to public source indexes for direct discovery: the search query you enter in **Search web**. Gemini is not involved.
-- Sent to Gemini: an AI-analysis request, a relevant local subgraph chosen by the context engine, and a file only after the user explicitly asks to analyse it.
-- Not automatically sent: the entire database, unrelated uploaded files, or the Gemini API key.
-- Stored locally: the graph, research history, collected-source records, conversations and uploaded files in this app’s workspace.
-
-This is a local prototype application, not a multi-user hosted service. Before deploying it, add authentication, per-user encryption/key management, CSRF protection, request quotas, upload malware scanning, a robust web-fetch egress policy (including SSRF protection), consent/audit controls, retention policies, and an authenticated object store.
-
-## Extending it
-
-Useful next production steps:
-
-1. Replace the simple local `LIKE` search with SQLite FTS and a vector-store adapter.
-2. Add Gemini Files API for large video/audio/PDF handling and resumable upload.
-3. Add a source revalidation worker with a content hash/diff table and a **Source updated** alert view.
-4. Add an extraction worker with readability parsing, robots/terms policy and source-specific parsers.
-5. Add source-quality review controls and user overrides instead of relying only on the displayed heuristic signal.
-6. Add a structured JSON schema / retry path tailored to the configured Gemini model.
-7. Add multi-user auth, encrypted database/file storage and a secure secret manager for deployment.
-
-## Important limitations
-
-- Built-in source discovery uses free public indexes and bounded live-web discovery; Gemini is optional for direct discovery but required for AI analysis, source synthesis and multimodal file analysis.
-- External sites can block collection, require JavaScript, or return non-HTML content. Their grounded URL remains available, and the collection status reports the limitation.
-- Gemini findings are proposals, not verified truth. Review the source cards, evidence chain, conflicts and confidence labels before accepting or relying on conclusions.
+1. **No AI.** No model provider, no key, no generation.
+2. **No third-party apps.** Public indexes are used as data sources only; every interface is
+   built here. There are no embedded players, iframes to other products, or SDKs.
+3. **No fabricated results.** Unavailable sources stay visibly unavailable.
+4. **Local first.** Projects, sources, snapshots and files live in `data/` and `uploads/`.

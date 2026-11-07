@@ -1,18 +1,20 @@
 # Deploy The Brain
 
-The Brain is a Node.js 20+ Express application. The browser app and all `/api` routes are served by one process, so no browser-facing code needs a `localhost` backend URL.
+The Brain is a Node.js 20+ Express application that searches public source indexes and reads
+the results in its own viewers. There is **no AI provider and no API key**. The browser app
+and all `/api` routes are served by one process, so no browser-facing code needs a backend URL.
 
 ## Run locally
 
 ```bash
 npm ci
-cp .env.example .env       # optional: set GEMINI_API_KEY for AI features
 PORT=4173 npm start
 ```
 
-Open `http://localhost:4173`.
+If `better-sqlite3` has no prebuilt binary for your platform, build it from the local Node
+headers: `npm_config_nodedir=/usr/local npm install`.
 
-Direct public-source discovery works without Gemini. Gemini is used only for optional AI analysis, source-bounded synthesis, document creation, and file analysis.
+Open `http://localhost:4173`.
 
 ## Deploy to a hosted Node platform
 
@@ -24,35 +26,38 @@ Direct public-source discovery works without Gemini. Gemini is used only for opt
 | Port | Supplied by the platform as `PORT` |
 | Bind address | `0.0.0.0` (already configured in `server.js`) |
 
-Set these environment variables in the platform’s secret/environment settings, never in client code or Git:
+No environment variables are required. There is no key to configure.
+
+The server must be able to reach these public endpoints outbound:
 
 ```text
-GEMINI_API_KEY=...
-GEMINI_MODEL=gemini-3.6-flash
+en.wikipedia.org, commons.wikimedia.org, upload.wikimedia.org
+en.wiktionary.org / api.dictionaryapi.dev
+api.openalex.org, api.crossref.org, export.arxiv.org, archive.org
 ```
 
-`GEMINI_API_KEY` is optional if you only need public-source discovery and the knowledge map.
+Anything a reader or search fetches is fetched by the server, not the browser, so a network
+policy only needs to allow the server.
 
 ## Persistent files
 
 The app writes its local state to:
 
-- `data/brain.db` — SQLite projects, sources, map nodes, claims, and research trail.
+- `data/brain.db` — SQLite projects, sources, map nodes, claims, reader history.
 - `uploads/` — files attached to the map.
 
-For a persistent deployment, mount `data/` and `uploads/` on a persistent volume. Ephemeral/serverless filesystems will reset the Brain’s saved map after redeployments.
+For a persistent deployment, mount `data/` and `uploads/` on a persistent volume. Ephemeral
+filesystems reset the saved map after redeployments.
 
 ## GitHub preparation
 
-The `.gitignore` intentionally excludes `.env`, database files, uploaded files, and `node_modules`. Commit `.env.example` only.
+`.gitignore` excludes `node_modules`, `.env`, database files, uploaded files and build output.
 
 ```bash
-git init
 git add package.json package-lock.json server.js lib public README.md DEPLOYMENT.md .env.example .gitignore
-git commit -m "Initial The Brain application"
-git branch -M main
-git remote add origin https://github.com/YOUR-ACCOUNT/YOUR-REPOSITORY.git
-git push -u origin main
+git commit -m "The Brain: search and reader application"
+git push
 ```
 
-Before publicly deploying, add authentication, secret management, rate limits, CSRF protection, upload malware scanning, backups, and a proper security review.
+Before publicly deploying, add authentication, rate limits, CSRF protection, upload malware
+scanning, backups and a proper security review.

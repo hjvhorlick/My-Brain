@@ -1,0 +1,186 @@
+/* Readers — original styling for the in-app dictionary, Wikipedia, web, image and
+   media viewers. Nothing here depends on an embedded third-party widget. */
+
+.reader-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  background: rgba(6, 12, 22, .92);
+  backdrop-filter: blur(6px);
+  animation: reader-in .16s ease-out;
+}
+.reader-overlay[hidden] { display: none; }
+@keyframes reader-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+.reader-shell {
+  display: flex;
+  flex-direction: column;
+  width: min(1180px, 96vw);
+  height: 94vh;
+  margin: auto;
+  overflow: hidden;
+  border: 1px solid rgba(120, 190, 255, .22);
+  border-radius: 16px;
+  background: linear-gradient(180deg, #0d1726 0%, #091220 100%);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, .55);
+}
+
+.reader-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-bottom: 1px solid rgba(120, 190, 255, .14);
+  background: rgba(10, 20, 34, .9);
+}
+.reader-bar .reader-kicker {
+  font-size: 10px;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: #6fd0ff;
+  white-space: nowrap;
+}
+.reader-bar h2 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.25;
+  color: #eaf4ff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reader-bar .reader-origin {
+  font-size: 12px;
+  color: #8ba4c0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.reader-bar nav { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.reader-bar button, .reader-bar a {
+  padding: 7px 12px;
+  border: 1px solid rgba(120, 190, 255, .28);
+  border-radius: 8px;
+  background: rgba(20, 38, 60, .8);
+  color: #cfe6ff;
+  font-size: 12px;
+  text-decoration: none;
+  cursor: pointer;
+}
+.reader-bar button:hover, .reader-bar a:hover { background: rgba(34, 66, 100, .95); color: #fff; }
+.reader-bar .reader-close { border-color: rgba(255, 130, 130, .4); color: #ffd5d5; }
+
+.reader-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 26px clamp(18px, 4vw, 48px) 60px;
+  color: #d7e6f7;
+  font-size: 15.5px;
+  line-height: 1.72;
+}
+.reader-body h3 { margin: 30px 0 10px; font-size: 19px; color: #f1f8ff; }
+.reader-body h4 { margin: 24px 0 8px; font-size: 16px; color: #e6f2ff; }
+.reader-body p { margin: 0 0 14px; }
+.reader-body a { color: #7fd4ff; text-decoration: none; border-bottom: 1px dotted rgba(127, 212, 255, .45); }
+.reader-body a:hover { color: #b7e9ff; border-bottom-style: solid; }
+.reader-lead { font-size: 17px; color: #edf6ff; }
+
+.reader-section-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 22px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(120, 190, 255, .14);
+}
+.reader-section-nav button {
+  padding: 5px 10px;
+  border: 1px solid rgba(120, 190, 255, .2);
+  border-radius: 999px;
+  background: rgba(16, 32, 52, .7);
+  color: #a9c8e6;
+  font-size: 12px;
+  cursor: pointer;
+}
+.reader-section-nav button:hover { color: #fff; border-color: rgba(127, 212, 255, .6); }
+
+/* dictionary */
+.dict-entry { border-bottom: 1px solid rgba(120, 190, 255, .12); padding-bottom: 22px; margin-bottom: 22px; }
+.dict-headword { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; }
+.dict-headword h3 { margin: 0; font-size: 30px; letter-spacing: -.01em; }
+.dict-phonetic { color: #9fc3e0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.dict-audio { padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(127, 212, 255, .4); background: rgba(20, 46, 70, .8); color: #b9e6ff; font-size: 12px; cursor: pointer; }
+.dict-sense-group { margin-top: 18px; }
+.dict-pos { display: inline-block; margin-bottom: 8px; padding: 2px 9px; border-radius: 6px; background: rgba(127, 212, 255, .14); color: #8fe2ff; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; }
+.dict-senses { margin: 0; padding-left: 22px; }
+.dict-senses li { margin-bottom: 9px; }
+.dict-example { display: block; margin-top: 4px; color: #a9bfd6; font-style: italic; }
+.dict-relations { margin-top: 10px; font-size: 13px; color: #9fb8d0; }
+.dict-relations b { color: #cfe6ff; font-weight: 600; }
+
+/* images inside readers */
+.reader-figure { margin: 22px 0; }
+.reader-figure img { width: 100%; border-radius: 12px; border: 1px solid rgba(120, 190, 255, .18); background: #08111e; cursor: zoom-in; }
+.reader-figure img.zoomed { cursor: zoom-out; transform: scale(1.35); transition: transform .25s ease; }
+.reader-figure figcaption { margin-top: 6px; font-size: 12px; color: #8ba4c0; }
+.reader-image-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin: 18px 0; }
+.reader-image-grid img { width: 100%; height: 130px; object-fit: cover; border-radius: 10px; border: 1px solid rgba(120, 190, 255, .16); cursor: zoom-in; }
+
+/* media player (own controls) */
+.media-reader { display: flex; flex-direction: column; gap: 16px; }
+.media-player-frame {
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #04080f;
+  border: 1px solid rgba(120, 190, 255, .2);
+}
+.media-player-frame video, .media-player-frame audio { display: block; width: 100%; }
+.media-player-frame video { max-height: 62vh; background: #04080f; }
+.media-player-frame audio { padding: 18px 16px; background: #0b1626; }
+.media-poster-stage { position: relative; }
+.media-poster-stage img { display: block; width: 100%; max-height: 62vh; object-fit: contain; background: #04080f; }
+.media-play-badge {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  border: 0; background: rgba(4, 8, 15, .35); cursor: pointer;
+}
+.media-play-badge span {
+  display: grid; place-items: center; width: 74px; height: 74px; border-radius: 50%;
+  background: rgba(127, 212, 255, .92); color: #06121f; font-size: 26px; padding-left: 6px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .5);
+}
+.media-meta { display: flex; flex-wrap: wrap; gap: 10px 22px; font-size: 13px; color: #9fb8d0; }
+.media-meta b { color: #dceeff; font-weight: 600; }
+.media-note { padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(255, 196, 120, .3); background: rgba(48, 34, 12, .5); color: #ffe0b6; font-size: 13.5px; }
+
+/* web reader */
+.reader-link-list { margin: 10px 0 24px; padding: 0; list-style: none; columns: 2; column-gap: 26px; }
+.reader-link-list li { margin-bottom: 7px; break-inside: avoid; font-size: 13.5px; }
+.reader-link-list a { color: #a8d8f5; }
+.reader-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; padding-top: 18px; border-top: 1px solid rgba(120, 190, 255, .14); }
+.reader-actions a, .reader-actions button {
+  padding: 9px 15px; border-radius: 9px; border: 1px solid rgba(127, 212, 255, .4);
+  background: rgba(22, 44, 68, .9); color: #d9efff; font-size: 13px; cursor: pointer; text-decoration: none;
+}
+.reader-actions a:hover, .reader-actions button:hover { background: rgba(40, 76, 112, .95); color: #fff; }
+.reader-status { color: #9fb8d0; font-size: 14px; }
+.reader-error { color: #ffc9c9; padding: 18px; border-radius: 10px; border: 1px solid rgba(255, 130, 130, .35); background: rgba(60, 18, 22, .5); }
+
+/* result cards get an explicit "open in app" affordance */
+.medium-actions .medium-open { font-weight: 600; }
+.medium-card.is-readable .medium-open::after { content: ' ›'; }
+
+@media (max-width: 760px) {
+  .reader-shell { width: 100vw; height: 100vh; border-radius: 0; border: 0; }
+  .reader-bar { flex-wrap: wrap; }
+  .reader-body { font-size: 15px; padding: 18px 16px 50px; }
+  .reader-link-list { columns: 1; }
+}
+
+/* The reader sits above the map and modals, but toasts must still be visible over it. */
+.toast-region { z-index: 200; }
+body.has-reader { overflow: hidden; }
+.command-mode { flex-wrap: wrap; }
+.mode-button span:first-child { font-weight: 800; }

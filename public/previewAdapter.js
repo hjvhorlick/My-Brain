@@ -1,22 +1,17 @@
 /* Browser-only adapter used only by TheBrain-preview.html. It lets the workspace
-   file renderer exercise graph UI interactions without pretending that Gemini/web
-   research is available there. The real app always calls the SQLite API. */
+   file renderer exercise graph UI interactions without pretending that public-index
+   search or page reading is available there. The real app always calls the server. */
 (function () {
   const iso = () => new Date().toISOString();
   const id = prefix => `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
   const state = { project: { id:'preview_project', name:'My Research Brain', description:'Preview-only local map', created_at:iso(), updated_at:iso() }, projects:[], nodes:[], connections:[] };
   state.projects = [state.project];
   const decode = body => { try { return typeof body === 'string' ? JSON.parse(body || '{}') : body || {}; } catch { return {}; } };
-  const notAvailable = feature => { const e = new Error(`${feature} needs the live The Brain server and a server-side Gemini API key. The static preview never fabricates research.`); e.status=503; throw e; };
+  const notAvailable = feature => { const e = new Error(`${feature} needs the live The Brain server. The static preview never fabricates search results.`); e.status=503; throw e; };
   window.previewApi = async function(path, options={}) {
     const method=(options.method || 'GET').toUpperCase(); const payload=decode(options.body); const graph=()=>({project:state.project,nodes:state.nodes,connections:state.connections,sourceCount:0,sources:[],queue:[]});
-    if(path==='/api/status') return {configured:false,model:'Gemini (live server)',privacy:'Static preview: no API calls are made.'};
-    if(path==='/api/settings/gemini' && method==='POST') {
-      const apiKey=String(payload.apiKey||'').trim();
-      if(apiKey.length<12) { const e=new Error('Paste a valid Gemini API key to test this field. The key will not be stored in preview mode.'); e.status=400; throw e; }
-      return {configured:false,model:'gemini-3.6-flash',previewOnly:true,keyStorage:'not stored in static preview'};
-    }
-    if(path==='/api/settings/gemini/test') return notAvailable('Gemini connection testing');
+    if(path==='/api/status') return {app:'The Brain',mode:'Search and read — no AI',webSearch:{provider:'Direct public-index search',configured:true,sources:[]},privacy:'Static preview: no API calls are made.'};
+    if(path.startsWith('/api/read/')) return notAvailable('The readers');
     if(path==='/api/projects' && method==='GET') return state.projects;
     if(path==='/api/projects' && method==='POST') { const p={id:id('project'),name:String(payload.name||'Untitled Brain'),description:String(payload.description||''),created_at:iso(),updated_at:iso()};state.projects.push(p);state.project=p;state.nodes=[];state.connections=[];return p; }
     if(/\/api\/projects\/[^/]+\/graph$/.test(path) && method==='GET') return graph();
@@ -30,8 +25,8 @@
     if(/\/api\/projects\/[^/]+\/(sources|queue|files)$/.test(path) && method==='GET') return [];
     if(/\/api\/projects\/[^/]+\/history$/.test(path)) return {sessions:[],conversations:[]};
     if(/\/api\/projects\/[^/]+\/search/.test(path)) return {nodes:[],sources:[],conversations:[]};
-    if(path==='/api/privacy')return {sentToGemini:[],notSentAutomatically:[],sourceStorage:'Preview only'};
-    if(path.includes('/research')||path.includes('/assistant')||path.includes('/analyze')||path.includes('/recheck')) return notAvailable('Web research, AI answers and source collection');
+    if(path==='/api/privacy')return {noAiProvider:true,notSentAutomatically:[],sourceStorage:'Preview only'};
+    if(path.includes('/recheck')||path.includes('/neural-grow')) return notAvailable('Public-index search and source collection');
     throw new Error(`This preview action is not available: ${method} ${path}`);
   };
 })();

@@ -10,7 +10,7 @@ import db, { uid, now, hydrateNode, hydrateSource, parseJson } from './lib/db.js
 import { collectSource, inferSourceType, assessReliability } from './lib/sourceCollector.js';
 import { discoverFreeSources } from './lib/freeSourceSearch.js';
 import { analyseTopic, researchConfig, rankSources, extractSourceClaims, detectPotentialConflicts, findKnowledgeGaps, shouldRunTargetedCycle, planTargetedQueries, researchSummary } from './lib/researchEngine.js';
-import * as Gemini from './lib/geminiProvider.js';
+import { dictionaryLookup, wikipediaArticle, wikipediaSummary, resolvePlayback, readWebPage } from './lib/reference.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -174,27 +174,6 @@ function mapGraph(projectId) {
   return { project, nodes, connections, sourceCount: sources.length, claimCount, sources, queue };
 }
 
-function toContext(projectId, selectedNodeId) {
-  const selected = selectedNodeId ? getNode(selectedNodeId) : null;
-  const nodes = db.prepare('SELECT * FROM nodes WHERE project_id = ? ORDER BY updated_at DESC LIMIT 180').all(projectId).map(hydrateNode);
-  const edges = db.prepare('SELECT * FROM connections WHERE project_id = ?').all(projectId);
-  const sourceRows = db.prepare('SELECT * FROM sources WHERE project_id = ? ORDER BY retrieved_at DESC LIMIT 20').all(projectId).map(hydrateSource);
-  let included = nodes;
-  if (selected) {
-    const linked = new Set([selected.id]);
-    for (const edge of edges) if (edge.from_node_id === selected.id) linked.add(edge.to_node_id); else if (edge.to_node_id === selected.id) linked.add(edge.from_node_id);
-    included = nodes.filter(node => linked.has(node.id));
-    if (!included.some(n => n.id === selected.id)) included.unshift(hydrateNode(selected));
-  }
-  const nodeText = included.slice(0, 30).map(n => `• [${n.type}; ${n.confidence}; ${n.origin}] ${n.title}: ${n.body.slice(0, 550)}`).join('\n');
-  const sourceText = sourceRows.slice(0, 12).map(s => `• SOURCE ${s.title} — ${s.url} (${s.reliability}; ${s.collection_status})`).join('\n');
-  const claimRows=db.prepare(`SELECT c.*, (SELECT COUNT(*) FROM claim_sources cs WHERE cs.claim_id=c.id) AS supports FROM claims c WHERE c.project_id=? ORDER BY c.relevance DESC,c.updated_at DESC LIMIT 16`).all(projectId);
-  const claimText=claimRows.map(claim=>`• [source quotation; relevance ${claim.relevance}/100; ${claim.supports} linked source(s)] ${claim.statement}`).join('\n');
-  const recent = db.prepare('SELECT request, analysis FROM research_sessions WHERE project_id = ? AND status = ? ORDER BY completed_at DESC LIMIT 3').all(projectId, 'completed')
-    .map(s => { const a = parseJson(s.analysis, {}); return `• Research: ${s.request}\n  Summary: ${(a.summary || '').slice(0, 500)}`; }).join('\n');
-  return `Selected focus: ${selected ? selected.title : 'Project-wide'}\n\nRelevant nodes:\n${nodeText || '(none)'}\n\nKnown sources:\n${sourceText || '(none)'}\n\nSource-quoted claims (not final conclusions):\n${claimText || '(none)'}\n\nRecent research:\n${recent || '(none)'}`.slice(0, 22000);
-}
-
 function insertNode(data) {
   const timestamp = now();
   const node = {
@@ -305,7 +284,7 @@ function recipeFocusWords(query = '') {
 function usableRecipeLinks(results = []) {
   const found=[]; const seen=new Set();
   for (const item of results) {
-    if (item?.provider !== 'Firecrawl live web') continue;
+    if (!Array.isArray(item?.metadata?.relatedLinks)) continue;
     for (const link of item.metadata?.relatedLinks || []) {
       const title=String(link?.title || '').replace(/\s+/g,' ').trim(); const url=String(link?.url || '').trim();
       if (!title || !url || seen.has(url) || /^(?:skip to|close|menu|search|home|print|subscribe|privacy|terms)\b/i.test(title)) continue;
@@ -350,7 +329,7 @@ function savedLiveCatalogueResults(projectId, rootQuery = '') {
   const target=normalisedWords(rootQuery);
   return db.prepare('SELECT * FROM sources WHERE project_id=? ORDER BY retrieved_at DESC').all(projectId).map(hydrateSource)
     .filter(source=>source.metadata?.role==='live-search-catalogue'&&source.metadata?.providerMetadata?.relatedLinks?.length&&(!target||normalisedWords(source.metadata?.query)===target))
-    .map(source=>({provider:source.metadata.discovery || 'Firecrawl live web',title:source.title,url:source.url,website:source.website,snippet:source.relevant_passage || '',metadata:source.metadata.providerMetadata}));
+    .map(source=>({provider:source.metadata.discovery || 'public source discovery',title:source.title,url:source.url,website:source.website,snippet:source.relevant_passage || '',metadata:source.metadata.providerMetadata}));
 }
 const BASIC_TOPIC_NOISE = new Set(['references','notes','footnotes','see also','external links','further reading','contents','history','overview','introduction','bibliography','index','home','search','menu','contact','privacy policy','terms of use','terms of service','origin','legacy','timeline','background','etymology','gallery']);
 function cleanTopicText(value = '') {
@@ -610,7 +589,9 @@ function neuralSources(results, maximum = 8) {
   const selected = []; const providers = new Set();
   // Give a live-web search several independently ranked pages, then keep the map
   // balanced with the specialist public libraries instead of stopping at one web URL.
-  for (const item of usable.filter(item=>item.provider === 'Firecrawl live web').slice(0,4)) { selected.push(item); providers.add(item.provider); }
+  // Keep the map balanced across independent libraries: at most two Wikipedia
+  // articles, then one item from each remaining provider.
+  for (const item of usable.filter(item=>item.provider === 'Wikipedia').slice(0,2)) { selected.push(item); providers.add(item.provider); }
   for (const item of usable) if (!selected.includes(item) && !providers.has(item.provider) && selected.length < maximum) { selected.push(item); providers.add(item.provider); }
   for (const item of usable) if (!selected.includes(item) && selected.length < maximum) selected.push(item);
   return selected;
@@ -654,8 +635,8 @@ function addNeuralSourceBranch(projectId, root, item, index, total, sessionId = 
     insertConnection({project_id:projectId,from_node_id:evidence.id,to_node_id:concept.id,relationship:'evidence_for',confidence:'unverified',notes:'Source-provided excerpt for this keyword.'}),
     insertConnection({project_id:projectId,from_node_id:sourceNode.id,to_node_id:evidence.id,relationship:'supports',confidence:'unverified',notes:'Original web source for this evidence.'})
   ].filter(Boolean);
-  // Firecrawl results already contain a clean collected page extract. Other providers
-  // are enriched from the original page asynchronously without blocking the map.
+  // Indexes that already supply an extract are stored as collected. The rest are
+  // enriched from the original page asynchronously without blocking the map.
   if (!sourceInput.extracted_text) void collectSource(sourceInput).then(collected => { const refreshed=persistSource(projectId,collected); captureSourceVersion(refreshed); }).catch(error => console.warn('Background neural-source collection failed:', error.message));
   return { source, concept, evidence, sourceNode, connections };
 }
@@ -709,74 +690,19 @@ function persistResearchGaps(projectId, sessionId, rootId, gaps = []) {
 }
 
 app.get('/api/status', (_req, res) => res.json({
-  configured: Gemini.configured(),
-  model: Gemini.modelName(),
-  keyStorage: 'server-side local .env',
+  app: 'The Brain',
+  mode: 'Search and read — no AI, no account, no API key',
+  keyStorage: 'No key is required or stored.',
   webSearch: {
-    provider: 'Free public-source discovery',
+    provider: 'Direct public-index search',
     configured: true,
     customerCost: 'No key or account required',
-    sources: ['Firecrawl live web search', 'Wikipedia', 'Wikimedia Commons', 'OpenAlex', 'Crossref', 'arXiv', 'Internet Archive']
+    sources: ['Wikipedia', 'Wiktionary dictionary', 'Wikimedia Commons', 'OpenAlex', 'Crossref', 'arXiv', 'Internet Archive'],
+    readers: ['Dictionary', 'Wikipedia article', 'Web page reader', 'Image viewer', 'Video and audio player', 'Document reader']
   },
   researchEngine: { name:'Topic-centred research engine', configuration:researchConfig(parseJson(process.env.BRAIN_RESEARCH_CONFIG,{})), behaviour:'Ranks candidates by relevance, intent, specificity, authority, evidence and distance; stores source quotations, duplicate groups, possible conflicts and research gaps.' },
-  privacy: 'Typing assistance sends the current term to Wikipedia OpenSearch after a short pause for real-title suggestions. When you ask to research, the query is sent by this server to the listed public source indexes, including Firecrawl for bounded live-page extraction. The engine stores source metadata, relevance decisions and source quotations locally. Gemini receives only optional AI-analysis requests, saved graph context, and files you explicitly analyse.'
+  privacy: 'Typing assistance sends the current term to Wikipedia OpenSearch after a short pause for real-title suggestions. When you search, the query is sent by this server to the listed public indexes. Saved page text, sources and reader history stay in the local database. Nothing is sent to an AI service, because this application has none.'
 }));
-
-function upsertEnvValue(source, key, value) {
-  const line = `${key}=${value}`;
-  const expression = new RegExp(`^${key.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}=.*$`, 'm');
-  return expression.test(source) ? source.replace(expression, line) : `${source.replace(/\s*$/, '')}\n${line}\n`;
-}
-
-function saveGeminiConfiguration(apiKeyInput, modelInput) {
-  const apiKey = String(apiKeyInput || '').trim();
-  const requestedModel = String(modelInput || Gemini.modelName()).trim();
-  if (apiKey.length < 12 || /[\r\n]/.test(apiKey)) throw badRequest('Enter a valid Gemini API key without spaces or line breaks.');
-  if (!/^[A-Za-z0-9._-]{3,120}$/.test(requestedModel)) throw badRequest('Enter a valid Gemini model identifier.');
-  const envPath = path.join(__dirname, '.env');
-  const oldEnv = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
-  const nextEnv = upsertEnvValue(upsertEnvValue(oldEnv, 'GEMINI_API_KEY', apiKey), 'GEMINI_MODEL', requestedModel);
-  const tempPath = `${envPath}.${crypto.randomUUID()}.tmp`;
-  fs.writeFileSync(tempPath, nextEnv, { encoding: 'utf8', mode: 0o600 });
-  fs.renameSync(tempPath, envPath);
-  fs.chmodSync(envPath, 0o600);
-  process.env.GEMINI_API_KEY = apiKey;
-  process.env.GEMINI_MODEL = requestedModel;
-  return { configured: true, model: Gemini.modelName(), keyStorage: 'Saved server-side to local .env. The key is not returned to this browser.' };
-}
-
-// The key is accepted only by the same-origin server, written to a local ignored .env
-// with owner-only permissions, and never sent back to browser code or SQLite.
-app.post('/api/settings/gemini', (req, res, next) => {
-  try { res.status(201).json(saveGeminiConfiguration(req.body.apiKey, req.body.model)); }
-  catch (e) { next(e); }
-});
-
-// Runs a minimal real grounded request; unlike a visual mock this reports authentication,
-// model retirement, quota and grounding failures directly from Gemini.
-app.post('/api/settings/gemini/test', async (_req, res, next) => { 
-  try {
-    const result = await Gemini.testConnection();
-    res.json({ ...result, message: `Connection verified with ${result.model}. Google Search grounding is available.` });
-  } catch (e) { next(e); }
-});
-
-// A fallback for embedded previews that deny clipboard access: the temporary text file
-// is parsed in memory then deleted immediately; it is never added to research files.
-app.post('/api/settings/gemini/import', upload.single('config'), (req, res, next) => {
-  try {
-    if (!req.file) throw badRequest('Choose a small .txt or .env file first.');
-    if (req.file.size > 12 * 1024) throw badRequest('The configuration file is too large.');
-    const content = fs.readFileSync(req.file.path, 'utf8');
-    fs.unlinkSync(req.file.path);
-    const matched = content.match(/^\s*GEMINI_API_KEY\s*=\s*(.+?)\s*$/m);
-    const apiKey = (matched ? matched[1] : content.trim()).replace(/^['"]|['"]$/g, '');
-    res.status(201).json(saveGeminiConfiguration(apiKey, Gemini.modelName()));
-  } catch (e) {
-    if (req.file?.path) { try { fs.unlinkSync(req.file.path); } catch {} }
-    next(e);
-  }
-});
 
 app.get('/api/projects', (_req, res) => res.json(db.prepare('SELECT * FROM projects ORDER BY updated_at DESC').all()));
 app.post('/api/projects', (req, res, next) => {
@@ -824,8 +750,8 @@ app.post('/api/projects/:projectId/connections', (req, res, next) => { try { ens
 
 app.get('/api/projects/:projectId/sources', (req, res, next) => { try { ensureProject(req.params.projectId); res.json(db.prepare('SELECT * FROM sources WHERE project_id=? ORDER BY retrieved_at DESC').all(req.params.projectId).map(hydrateSource)); } catch (e) { next(e); } });
 
-// Direct, no-key source discovery. Every result comes from the listed public index;
-// Gemini is never called for this route.
+// Direct, no-key source discovery. Every result comes from the listed public index.
+// Search types: web | wikipedia | dictionary | articles | images | videos | books | music | papers | documents | all.
 app.get('/api/discovery', async (req, res, next) => {
   try {
     const query = String(req.query.q || '').trim();
@@ -846,7 +772,7 @@ app.get('/api/typing-suggestions', async (req, res, next) => {
 });
 
 // Internet-first neural expansion. It writes a full, source-aware first/second/third-layer
-// branch set before any optional Gemini interpretation is requested.
+// branch set straight from the public indexes.
 app.post('/api/projects/:projectId/neural-grow', async (req, res, next) => {
   const projectId=req.params.projectId; let session=null;
   try {
@@ -958,7 +884,7 @@ app.post('/api/projects/:projectId/neural-grow', async (req, res, next) => {
     db.prepare('UPDATE research_sessions SET status=?,analysis=?,completed_at=? WHERE id=?').run('completed',JSON.stringify(analysis),timestamp,session.id);
     db.prepare('INSERT INTO search_queries (id,session_id,query,created_at) VALUES (?,?,?,?)').run(uid('query'),session.id,discoveryQuery,timestamp);
     db.prepare('UPDATE projects SET updated_at=? WHERE id=?').run(timestamp,projectId);
-    res.status(201).json({ root, branches, sessionId:session.id, providerStatus, refreshedFocusCards, research:analysis.engine, graph:mapGraph(projectId), privacy:'Internet source indexes were used first. Sources were relevance-ranked and duplicate source quotations were merged. Gemini was not called. Original-page collection continues locally in the background.' });
+    res.status(201).json({ root, branches, sessionId:session.id, providerStatus, refreshedFocusCards, research:analysis.engine, graph:mapGraph(projectId), privacy:'Public source indexes were searched directly by this server. Sources were relevance-ranked and duplicate source quotations were merged. No AI service was contacted. Original-page collection continues locally in the background.' });
   } catch (e) {
     if (session) db.prepare('UPDATE research_sessions SET status=?,error=?,completed_at=? WHERE id=?').run('failed',String(e.message || e),now(),session.id);
     next(e);
@@ -966,7 +892,7 @@ app.post('/api/projects/:projectId/neural-grow', async (req, res, next) => {
 });
 
 // A source explicitly selected by the user from direct discovery or pasted as a URL.
-// The original public URL is collected locally and Gemini is not used.
+// The original public URL is collected locally.
 app.post('/api/projects/:projectId/sources/import', async (req, res, next) => {
   try {
     ensureProject(req.params.projectId);
@@ -1011,143 +937,6 @@ app.post('/api/sources/:sourceId/recheck', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// Turn a user-selected discovery branch into cautious AI proposals. Unlike /research,
-// this route does not give Gemini a search tool: it can only analyse saved source extracts.
-app.post('/api/projects/:projectId/discovery/:rootId/analyse', async (req, res, next) => {
-  const projectId = req.params.projectId;
-  try {
-    ensureProject(projectId);
-    const requestedNode = getNode(req.params.rootId);
-    const requestedMetadata=parseJson(requestedNode?.metadata, {});
-    const requestedRole=requestedMetadata.role;
-    // Accept a branch point as well as the root so an action opened from a selected word
-    // remains source-bounded rather than failing due to the visual entry point.
-    const root=['discovery-root','neural-root'].includes(requestedRole) ? requestedNode : getNode(requestedMetadata.discoveryRootId || requestedMetadata.neuralRootId || '');
-    const rootRole=parseJson(root?.metadata, {}).role;
-    if (!root || root.project_id !== projectId || !['discovery-root','neural-root'].includes(rootRole)) throw badRequest('Choose a saved discovery topic to analyse.');
-    const branchNodes = db.prepare('SELECT * FROM nodes WHERE project_id=?').all(projectId).map(hydrateNode)
-      .filter(node => (node.metadata?.discoveryRootId === root.id || node.metadata?.neuralRootId === root.id) && node.metadata?.sourceId);
-    const sourceIds = [...new Set(branchNodes.map(node => node.metadata.sourceId))];
-    const sources = sourceIds.length ? db.prepare(`SELECT * FROM sources WHERE id IN (${sourceIds.map(() => '?').join(',')})`).all(...sourceIds).map(hydrateSource) : [];
-    if (!sources.length) throw badRequest('Save at least one source in this branch before analysing it.');
-    const topic = parseJson(root.metadata, {}).query || root.title.replace(/^Search:\s*/i, '');
-    const session = { id: uid('session'), project_id: projectId, request: String(topic).slice(0, 3000), selected_node_id: root.id, status: 'running', plan: '[]', analysis: '{}', error: '', model: Gemini.modelName(), created_at: now(), completed_at: null };
-    db.prepare('INSERT INTO research_sessions (id,project_id,request,selected_node_id,status,plan,analysis,error,model,created_at,completed_at) VALUES (@id,@project_id,@request,@selected_node_id,@status,@plan,@analysis,@error,@model,@created_at,@completed_at)').run(session);
-    let output;
-    try { output = await Gemini.analyseCollectedSources({ topic: session.request, sources, context: toContext(projectId, root.id) }); }
-    catch (err) { db.prepare('UPDATE research_sessions SET status=?,error=?,completed_at=? WHERE id=?').run('failed', err.message, now(), session.id); throw err; }
-    const analysis = { ...output.analysis, sourceIdsByUrl: Object.fromEntries(sources.map(source => [source.url, source.id])) };
-    const timestamp = now();
-    db.prepare('UPDATE research_sessions SET status=?,plan=?,analysis=?,model=?,completed_at=? WHERE id=?').run('completed', JSON.stringify(analysis.plan || []), JSON.stringify(analysis), output.model, timestamp, session.id);
-    for (const gap of analysis.gaps || []) {
-      if (!gap.question) continue;
-      db.prepare('INSERT INTO research_queue (id,project_id,node_id,question,reason,priority,status,origin_session_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
-        .run(uid('queue'), projectId, root.id, String(gap.question).slice(0, 1000), String(gap.reason || '').slice(0, 2000), safe(gap.priority, new Set(['critical','high','medium','low']), 'medium'), 'open', session.id, timestamp, timestamp);
-    }
-    res.status(201).json({ sessionId: session.id, analysis, sources, queries: [], sourceBounded: true, privacy: 'Gemini received only the source extracts you selected for this branch and the relevant local map context. It was not given web search.' });
-  } catch (e) { next(e); }
-});
-
-app.post('/api/projects/:projectId/research', async (req, res, next) => {
-  const { request, selectedNodeId } = req.body || {};
-  const projectId = req.params.projectId;
-  const cleanRequest = String(request || '').trim();
-  try {
-    ensureProject(projectId); if (!cleanRequest) throw badRequest('Enter a research question or topic.');
-    if (selectedNodeId) { const n = getNode(selectedNodeId); if (!n || n.project_id !== projectId) throw badRequest('The selected focus node is not in this project.'); }
-    const session = { id: uid('session'), project_id: projectId, request: cleanRequest.slice(0, 3000), selected_node_id: selectedNodeId || null, status: 'running', plan: '[]', analysis: '{}', error: '', model: Gemini.modelName(), created_at: now(), completed_at: null };
-    db.prepare('INSERT INTO research_sessions (id,project_id,request,selected_node_id,status,plan,analysis,error,model,created_at,completed_at) VALUES (@id,@project_id,@request,@selected_node_id,@status,@plan,@analysis,@error,@model,@created_at,@completed_at)').run(session);
-    let output;
-    try { output = await Gemini.research({ request: session.request, context: toContext(projectId, selectedNodeId) }); }
-    catch (err) { db.prepare('UPDATE research_sessions SET status=?,error=?,completed_at=? WHERE id=?').run('failed', err.message, now(), session.id); throw err; }
-    const collected = await Promise.all(output.sources.slice(0, 16).map(async source => {
-      const result = await collectSource({ ...source, source_type: inferSourceType(source.url) });
-      const stored = persistSource(projectId, result);
-      captureSourceVersion(stored);
-      return stored;
-    }));
-    for (const query of output.queries) if (query) db.prepare('INSERT INTO search_queries (id,session_id,query,created_at) VALUES (?,?,?,?)').run(uid('query'), session.id, String(query).slice(0, 800), now());
-    const sourceIdsByUrl = Object.fromEntries(collected.map(s => [s.url, s.id]));
-    const analysis = { ...output.analysis, sourceIdsByUrl };
-    const timestamp = now();
-    db.prepare('UPDATE research_sessions SET status=?,plan=?,analysis=?,model=?,completed_at=? WHERE id=?').run('completed', JSON.stringify(analysis.plan || []), JSON.stringify(analysis), output.model, timestamp, session.id);
-    for (const gap of analysis.gaps || []) {
-      if (!gap.question) continue;
-      db.prepare('INSERT INTO research_queue (id,project_id,node_id,question,reason,priority,status,origin_session_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
-        .run(uid('queue'), projectId, selectedNodeId || null, String(gap.question).slice(0, 1000), String(gap.reason || '').slice(0, 2000), safe(gap.priority, new Set(['critical','high','medium','low']), 'medium'), 'open', session.id, timestamp, timestamp);
-    }
-    res.status(201).json({ sessionId: session.id, analysis, sources: collected, queries: output.queries, privacy: 'Grounded source URLs were persisted from Gemini’s response; original pages were collected server-side where available.' });
-  } catch (e) { next(e); }
-});
-
-app.post('/api/research/:sessionId/apply', (req, res, next) => {
-  try {
-    const session = db.prepare('SELECT * FROM research_sessions WHERE id=?').get(req.params.sessionId);
-    if (!session) throw Object.assign(new Error('Research session not found.'), { status: 404 });
-    if (session.status !== 'completed') throw badRequest('Only completed research can be added to the map.');
-    const analysis = parseJson(session.analysis, {});
-    const requestedKeys = Array.isArray(req.body.keys) ? new Set(req.body.keys.map(String)) : new Set((analysis.proposedNodes || []).map(n => n.key));
-    const proposed = (analysis.proposedNodes || []).filter(n => n.key && requestedKeys.has(String(n.key)));
-    if (!proposed.length) throw badRequest('Select at least one proposed node.');
-    let rootId = session.selected_node_id;
-    if (!rootId) {
-      const root = insertNode({ project_id: session.project_id, type: 'concept', title: session.request, body: analysis.summary || 'Research topic created from your request.', priority: 'high', confidence: 'unverified', origin: 'user', x: 0, y: 0, metadata: { role: 'research-root', sessionId: session.id } });
-      rootId = root.id;
-    }
-    const rootNode = getNode(rootId);
-    const rootX = Number(rootNode?.x) || 0, rootY = Number(rootNode?.y) || 0;
-    const keyMap = new Map([['ROOT', rootId]]);
-    const created = []; const timestamp = now();
-    proposed.forEach((proposal, index) => {
-      const angle = (Math.PI * 2 * index) / Math.max(proposed.length, 1) - Math.PI / 2;
-      const node = insertNode({ project_id: session.project_id, type: proposal.type, title: proposal.title, body: proposal.description || '', priority: proposal.priority, confidence: proposal.confidence, origin: 'research', x: rootX + 480 * Math.cos(angle), y: rootY + 330 * Math.sin(angle), metadata: { sessionId: session.id, status: proposal.status || 'fact', sourceUrls: proposal.sourceUrls || [] } });
-      keyMap.set(String(proposal.key), node.id); created.push(node);
-      for (const url of proposal.sourceUrls || []) { const sourceId = analysis.sourceIdsByUrl?.[url]; if (sourceId) attachSource(sourceId, node.id, 'supports'); }
-    });
-    const createdConnections = [];
-    for (const relation of analysis.relationships || []) {
-      const from = keyMap.get(String(relation.from)); const to = keyMap.get(String(relation.to));
-      if (from && to && from !== to) { const e = insertConnection({ project_id: session.project_id, from_node_id: from, to_node_id: to, relationship: relation.relationship, notes: relation.notes, confidence: 'medium' }); if (e) createdConnections.push(e); }
-    }
-    // Keep selected source-aware claims as an explicit evidence layer. The source node
-    // links to evidence, which links to the project conclusion/root: an inspectable chain.
-    const claims = (analysis.claims || []).filter(c => [...(c.supportingUrls || []), ...(c.disputingUrls || [])].some(url => analysis.sourceIdsByUrl?.[url])).slice(0, 8);
-    let evidenceIndex = 0;
-    for (const claim of claims) {
-      const x = rootX - 450 + (evidenceIndex % 3) * 150; const y = rootY - 270 + Math.floor(evidenceIndex / 3) * 150; evidenceIndex++;
-      const evidence = insertNode({ project_id: session.project_id, type: 'evidence', title: claim.claim?.slice(0, 190) || 'Source-backed evidence', body: claim.note || '', priority: 'informational', confidence: claim.confidence, origin: 'research', x, y, metadata: { sessionId: session.id, status: 'claim' } });
-      created.push(evidence);
-      for (const url of claim.supportingUrls || []) {
-        const sourceId = analysis.sourceIdsByUrl?.[url]; if (!sourceId) continue;
-        let sourceNode = db.prepare("SELECT n.* FROM nodes n JOIN source_nodes sn ON n.id=sn.node_id WHERE sn.source_id=? AND n.project_id=? AND n.type='source' LIMIT 1").get(sourceId, session.project_id);
-        if (!sourceNode) {
-          const source = db.prepare('SELECT * FROM sources WHERE id=?').get(sourceId);
-          sourceNode = insertNode({ project_id: session.project_id, type: 'source', title: source?.title || url, body: url, priority: 'informational', confidence: 'high', origin: 'research', x: x - 190, y, metadata: { sourceId, sessionId: session.id } });
-          attachSource(sourceId, sourceNode.id, 'documents'); created.push(sourceNode);
-        }
-        attachSource(sourceId, evidence.id, 'supports');
-        const e = insertConnection({ project_id: session.project_id, from_node_id: sourceNode.id, to_node_id: evidence.id, relationship: 'supports', confidence: claim.confidence, notes: 'Source supports this evidence.' }); if (e) createdConnections.push(e);
-      }
-      for (const url of claim.disputingUrls || []) { const sourceId = analysis.sourceIdsByUrl?.[url]; if (sourceId) attachSource(sourceId, evidence.id, 'contradicts', 'This source was returned as disagreeing evidence.'); }
-      const edge = insertConnection({ project_id: session.project_id, from_node_id: evidence.id, to_node_id: rootId, relationship: claim.disputingUrls?.length ? 'evidence_against' : 'evidence_for', confidence: claim.confidence, notes: claim.note }); if (edge) createdConnections.push(edge);
-    }
-    db.prepare('UPDATE projects SET updated_at=? WHERE id=?').run(timestamp, session.project_id);
-    res.json({ rootId, created, connections: createdConnections, graph: mapGraph(session.project_id) });
-  } catch (e) { next(e); }
-});
-
-app.post('/api/projects/:projectId/assistant', async (req, res, next) => {
-  try {
-    ensureProject(req.params.projectId); const question = String(req.body.question || '').trim(); if (!question) throw badRequest('Ask a question first.');
-    const nodeId = req.body.selectedNodeId || null; const allowWeb = Boolean(req.body.allowWeb);
-    const context = toContext(req.params.projectId, nodeId);
-    db.prepare('INSERT INTO conversations (id,project_id,node_id,role,content,metadata,created_at) VALUES (?,?,?,?,?,?,?)').run(uid('msg'), req.params.projectId, nodeId, 'user', question.slice(0, 8000), '{}', now());
-    const output = await Gemini.assistantReply({ question, context, allowWeb });
-    db.prepare('INSERT INTO conversations (id,project_id,node_id,role,content,metadata,created_at) VALUES (?,?,?,?,?,?,?)').run(uid('msg'), req.params.projectId, nodeId, 'assistant', output.text, JSON.stringify({ sources: output.sources, queries: output.queries, model: output.model }), now());
-    res.json(output);
-  } catch (e) { next(e); }
-});
-
 app.get('/api/projects/:projectId/history', (req, res, next) => {
   try {
     ensureProject(req.params.projectId);
@@ -1176,29 +965,6 @@ app.get('/api/projects/:projectId/search', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// Generate a real, local Markdown document from the selected graph context. The generated
-// content remains a file plus a connected document node so it is visible in the neural map.
-app.post('/api/projects/:projectId/documents/generate', async (req, res, next) => {
-  try {
-    ensureProject(req.params.projectId);
-    const selectedNodeId=String(req.body.selectedNodeId || ''); const selected=getNode(selectedNodeId);
-    if (!selected || selected.project_id!==req.params.projectId) throw badRequest('Select a thought in this project before creating a document.');
-    const documentType=String(req.body.documentType || 'research brief').trim().slice(0, 80);
-    const instructions=String(req.body.instructions || '').trim().slice(0, 6000);
-    const title=String(req.body.title || `${selected.title} — ${documentType}`).trim().slice(0, 180);
-    const output=await Gemini.createDocument({ title, documentType, instructions, context: toContext(req.params.projectId, selected.id) });
-    const fileId=uid('file'); const storedName=`${fileId}.md`; const filePath=path.join(UPLOAD_DIR, storedName);
-    const markdown=`# ${title}\n\n${output.text.trim()}\n`;
-    fs.writeFileSync(filePath, markdown, { encoding:'utf8', mode:0o600 });
-    const file={ id:fileId, project_id:req.params.projectId, original_name:`${title}.md`, stored_name:storedName, mime_type:'text/markdown', size:Buffer.byteLength(markdown), path:filePath, analysis:JSON.stringify({ generatedBy:'Gemini', documentType, model:output.model }), created_at:now() };
-    db.prepare('INSERT INTO files (id,project_id,original_name,stored_name,mime_type,size,path,analysis,created_at) VALUES (@id,@project_id,@original_name,@stored_name,@mime_type,@size,@path,@analysis,@created_at)').run(file);
-    const existingCount=db.prepare('SELECT COUNT(*) AS count FROM nodes WHERE project_id=?').get(req.params.projectId).count;
-    const angle=existingCount*1.618; const node=insertNode({ project_id:req.params.projectId, type:'document', title:file.original_name, body:`Gemini-generated ${documentType}. Review before relying on it.`, priority:'informational', confidence:'unverified', origin:'research', x:(Number(selected.x)||0)+270*Math.cos(angle), y:(Number(selected.y)||0)+190*Math.sin(angle), metadata:{fileId,generatedDocument:true,documentType,model:output.model,attachedTo:selected.id} });
-    const connection=insertConnection({ project_id:req.params.projectId, from_node_id:selected.id, to_node_id:node.id, relationship:'documents', notes:`Gemini created this ${documentType} from the selected Brain context. Review it before use.` });
-    res.status(201).json({ file:{...file,analysis:parseJson(file.analysis,{})}, node, connection, text:output.text, model:output.model });
-  } catch (e) { next(e); }
-});
-
 app.post('/api/projects/:projectId/files', upload.array('files', 10), (req, res, next) => {
   try {
     ensureProject(req.params.projectId);
@@ -1212,21 +978,85 @@ app.post('/api/projects/:projectId/files', upload.array('files', 10), (req, res,
 });
 app.get('/api/projects/:projectId/files', (req, res, next) => { try { ensureProject(req.params.projectId); res.json(db.prepare('SELECT id,project_id,original_name,mime_type,size,analysis,created_at FROM files WHERE project_id=? ORDER BY created_at DESC').all(req.params.projectId).map(f => ({ ...f, analysis: parseJson(f.analysis, {}) }))); } catch (e) { next(e); } });
 app.get('/api/files/:id/download', async (req, res, next) => { try { const file = db.prepare('SELECT * FROM files WHERE id=?').get(req.params.id); if (!file) throw Object.assign(new Error('File not found.'), { status: 404 }); res.type(file.mime_type); res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.original_name)}`); fs.createReadStream(file.path).pipe(res); } catch (e) { next(e); } });
-app.post('/api/files/:id/analyze', async (req, res, next) => {
+/* ---------------------------------------------------------------- readers
+   Every viewer in the browser is built in this repository. These routes supply it
+   with data only: dictionary senses, Wikipedia sections, readable page text, a
+   playable media URL, or a local file's own bytes. Nothing is generated or rewritten.
+*/
+
+// Dictionary reader: real senses, examples, pronunciation and audio for one term.
+app.get('/api/read/dictionary', async (req, res, next) => {
   try {
-    const file = db.prepare('SELECT * FROM files WHERE id=?').get(req.params.id); if (!file) throw Object.assign(new Error('File not found.'), { status: 404 });
-    const output = await Gemini.analyzeFile({ filePath: file.path, mimeType: file.mime_type, filename: file.original_name, prompt: req.body.prompt, context: toContext(file.project_id, req.body.selectedNodeId) });
-    db.prepare('UPDATE files SET analysis=? WHERE id=?').run(JSON.stringify(output), file.id);
-    res.json(output);
+    const term = String(req.query.q || '').trim().slice(0, 60);
+    if (!term) throw badRequest('Enter a word to look up.');
+    const simple = term.toLowerCase().replace(/[^a-z' -]/g, '').trim();
+    // A searched phrase ("photosynthesis meaning") is reduced to its likeliest headword,
+    // but only after the exact term is genuinely absent rather than merely unreachable.
+    let entry = await dictionaryLookup(simple);
+    const words = simple.split(/\s+/).filter(Boolean).sort((left, right) => right.length - left.length);
+    for (const word of entry.notFound && words.length > 1 ? words.slice(0, 3) : []) {
+      const attempt = await dictionaryLookup(word);
+      if (attempt.entries.length) { entry = attempt; break; }
+    }
+    const wikipedia = entry.entries.length ? await wikipediaSummary(entry.entries[0].word).catch(() => null) : null;
+    res.json({ term: entry.term || simple, entries: entry.entries, provider: entry.provider, wikipedia, privacy: 'The word was sent to a public dictionary index. Your project notes were not.' });
   } catch (e) { next(e); }
 });
 
-// This endpoint deliberately exposes only non-sensitive environment state, never a key.
-app.get('/api/privacy', (_req, res) => res.json({
-  sentToGemini: ['your prompt', 'the relevant selected-node context and connected notes', 'files you explicitly choose to analyse'],
-  notSentAutomatically: ['your full database', 'files you did not select', 'the Gemini API key'],
-  sourceStorage: 'Grounded web result URLs and locally collected public-page extracts are stored in SQLite under data/. Delete the project data folder to remove local data.'
-}));
+// Wikipedia reader: the article's own sections, images and internal article links.
+app.get('/api/read/wikipedia', async (req, res, next) => {
+  try {
+    const title = String(req.query.title || req.query.q || '').trim().slice(0, 240);
+    if (!title) throw badRequest('Choose a Wikipedia article to read.');
+    res.json(await wikipediaArticle(title));
+  } catch (e) { next(e); }
+});
+
+// Web reader: server-side fetch reduced to readable paragraphs and the page's own links.
+app.get('/api/read/page', async (req, res, next) => {
+  try {
+    const requested = String(req.query.url || '').trim();
+    const parsed = publicHttpUrl(requested);
+    res.json(await readWebPage(parsed.href));
+  } catch (e) { next(e); }
+});
+
+// Media resolver: returns a direct, playable URL where one exists. Used by video,
+// music and document viewers so playback happens in this app's own player.
+app.get('/api/read/playback', async (req, res, next) => {
+  try {
+    const url = String(req.query.url || '').trim();
+    if (!url) throw badRequest('Choose a video, audio or document source to play.');
+    const source = db.prepare('SELECT * FROM sources WHERE url=? ORDER BY retrieved_at DESC LIMIT 1').get(url);
+    const hydrated = source ? hydrateSource(source) : null;
+    res.json(await resolvePlayback({
+      url, thumbnail: String(req.query.thumbnail || hydrated?.metadata?.thumbnail || ''),
+      metadata: { ...(hydrated?.metadata?.providerMetadata || {}), identifier: hydrated?.metadata?.providerMetadata?.identifier || '', playbackUrl: hydrated?.metadata?.providerMetadata?.playbackUrl || '' }
+    }));
+  } catch (e) { next(e); }
+});
+
+// Inline preview of a saved local file (images and PDFs render; others download).
+app.get('/api/files/:id/view', (req, res, next) => {
+  try {
+    const file = db.prepare('SELECT * FROM files WHERE id=?').get(req.params.id);
+    if (!file || !fs.existsSync(file.path)) throw Object.assign(new Error('File not found.'), { status: 404 });
+    res.type(file.mime_type);
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(file.original_name)}`);
+    fs.createReadStream(file.path).pipe(res);
+  } catch (e) { next(e); }
+});
+
+// Plain-text preview of a saved text/document file, capped so the reader stays responsive.
+app.get('/api/files/:id/text', async (req, res, next) => {
+  try {
+    const file = db.prepare('SELECT * FROM files WHERE id=?').get(req.params.id);
+    if (!file || !fs.existsSync(file.path)) throw Object.assign(new Error('File not found.'), { status: 404 });
+    if (!/^text\/|json|xml|csv|markdown/i.test(file.mime_type || '')) throw badRequest('This file type has no in-app text preview; use the download button.');
+    const content = (await fsp.readFile(file.path, 'utf8')).slice(0, 200000);
+    res.json({ id: file.id, name: file.original_name, mimeType: file.mime_type, text: content });
+  } catch (e) { next(e); }
+});
 
 app.use((err, _req, res, _next) => {
   console.error(err);

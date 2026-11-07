@@ -24,6 +24,7 @@
   <link rel="stylesheet" href="/focus-map-2d.css?v=research-engine-3" />
   <link rel="stylesheet" href="/dark-map-theme.css?v=dark-map-3" />
   <link rel="stylesheet" href="/media-explorer.css?v=media-map-2" />
+  <link rel="stylesheet" href="/readers.css?v=readers-1" />
 </head>
 <body>
   <div class="app-shell">
@@ -31,9 +32,9 @@
       <header class="topbar">
         <button class="project-crumb" id="project-switcher" title="Switch project"><span>Brain</span><i>/</i><strong id="project-title">My Research Brain</strong><b>⌄</b></button>
         <div class="top-actions">
-          <button class="api-status top-api-status" id="api-status" title="Open Gemini settings"><span class="status-dot"></span><span>Checking Gemini…</span></button>
-          <button class="icon-button" id="search-button" title="Search local knowledge">⌕ <span class="keycap">⌘ K</span></button>
-          <button class="icon-button settings-shortcut" id="settings-button" title="Open Gemini settings">⚙ <span>Gemini settings</span></button>
+          <button class="api-status top-api-status" id="api-status" title="Source indexes in use"><span class="status-dot"></span><span>Search ready</span></button>
+          <button class="icon-button" id="search-button" title="Search this Brain">⌕ <span class="keycap">⌘ K</span></button>
+          <button class="icon-button settings-shortcut" id="settings-button" title="Reader and workspace settings">⚙ <span>Settings</span></button>
           <button class="icon-button focus-shortcut" id="focus-button" title="Fit the complete 2D map">⌗ <span>Fit map</span></button>
           <button class="share-button" id="new-project">+ New search</button>
           <button class="profile" title="Local workspace">M</button>
@@ -72,12 +73,12 @@
       <section class="command-region">
         <div class="assistant-surface" id="assistant-surface" hidden></div>
         <div class="command-shell">
-          <div class="command-mode"><button class="mode-button selected" data-mode="web"><span>⌕</span> Search web</button><button class="mode-button" data-mode="research"><span>✦</span> Analyse with Gemini</button><button class="mode-button" data-mode="ask"><span>◌</span> Ask Brain</button></div>
+          <div class="command-mode"><button class="mode-button selected" data-mode="web"><span>⌕</span> Search web</button><button class="mode-button" data-mode="wikipedia"><span>W</span> Wikipedia</button><button class="mode-button" data-mode="dictionary"><span>Aa</span> Dictionary</button><button class="mode-button" data-mode="media"><span>▦</span> Images &amp; video</button></div>
           <form id="command-form">
             <div class="command-input-wrap"><span class="spark">✦</span><input id="command-input" autocomplete="off" placeholder="Research a topic, question or problem…" aria-label="Research command" /><button type="button" class="attach-button" id="attach-button" title="Add files">⌑</button><input type="file" id="file-input" multiple hidden /></div>
             <button class="send-button" id="send-button" type="submit" title="Run command"><span>↑</span></button>
           </form>
-          <div class="suggestions"><button data-command="Research renewable energy in South Africa">Research a topic</button><button data-command="What am I missing?">What am I missing?</button><button data-command="Find connections">Find connections</button><button data-command="Find evidence against this">Find contradictory information</button></div>
+          <div class="suggestions"><button data-command="Search a topic">Search a topic</button><button data-command="Serendipity">Serendipity</button><button data-command="Look up a word">Look up a word</button><button data-command="Read a web page">Read a web page</button></div>
         </div>
       </section>
     </main>
@@ -99,7 +100,8 @@
   </nav>
 
   <div class="modal-backdrop" id="modal-backdrop" hidden><div class="modal" id="modal"></div></div>
+  <div class="reader-overlay" id="reader-overlay" hidden aria-label="Reader"></div>
   <div class="toast-region" id="toast-region" aria-live="polite"></div>
-  <script src="/app.js?v=research-engine-12"></script>
+  <script src="/app.js?v=search-reader-13"></script>
 </body>
 </html>
